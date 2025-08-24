@@ -343,10 +343,17 @@
             });
         }
 
+        // Helper function for safe Base64 encoding
+        function safeBtoa(str) {
+            return btoa(encodeURIComponent(str).replace(/%([0-9A-F]{2})/g,
+                function toSolidBytes(match, p1) {
+                    return String.fromCharCode('0x' + p1);
+                }));
+        }
 
         async function generateAudio(text, speaker, index) {
-            // Local storage key for caching
-            const cacheKey = `audiocache_${speaker}_${btoa(text)}`; // base64 encode text for safe key
+            // Local storage key for caching, using safeBtoa
+            const cacheKey = `audiocache_${speaker}_${safeBtoa(text)}`; 
 
             // Try to load from cache first
             const cachedData = localStorage.getItem(cacheKey);
