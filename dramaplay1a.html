@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Audio Drama: A Spark in the Dark</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.7.77/Tone.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Cutive+Mono&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #111827;
+            color: #F3F4F6;
+        }
+        .script-font {
+            font-family: 'Cutive Mono', monospace;
+        }
+        .highlight {
+            background-color: rgba(251, 191, 36, 0.2);
+            transition: background-color 0.3s ease;
+        }
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #fbbf24;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="flex items-center justify-center min-h-screen bg-gray-900">
+    <div class="w-full max-w-3xl mx-auto p-4 sm:p-6 md:p-8 bg-gray-800 rounded-2xl shadow-2xl border border-gray-700">
+        <header class="text-center mb-6">
+            <h1 class="text-2xl sm:text-3xl font-bold text-amber-300">The Flame We Nurture</h1>
+            <p class="text-lg sm:text-xl text-gray-300">Chapter 1: A Spark in the Dark</p>
+        </header>
+
+        <div id="script-display" class="script-font bg-gray-900/50 rounded-lg p-4 sm:p-6 h-80 overflow-y-auto border border-gray-700 mb-6 text-gray-300 text-sm sm:text-base">
+            <!-- Script lines will be injected here -->
+        </div>
+
+        <div id="controls" class="flex flex-col items-center space-y-4">
+            <div id="player-ui" class="w-full">
+                <div class="flex items-center justify-center space-x-4">
+                    <button id="play-pause-btn" class="bg-amber-400 hover:bg-amber-500 text-gray-900 font-bold p-4 rounded-full shadow-lg transition-transform transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-amber-300">
+                        <svg id="play-icon" xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" viewBox="0 0 20 20" fill="currentColor">
+                            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clip-rule="evenodd" />
+                        </svg>
+                        <svg id="pause-icon" xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 hidden" viewBox="0 0 20 20" fill="currentColor">
+                            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8 7a1 1 0 00-1 1v4a1 1 0 102 0V8a1 1 0 00-1-1zm4 0a1 1 0 00-1 1v4a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd" />
+                        </svg>
+                    </button>
+                </div>
+                 <div class="w-full bg-gray-700 rounded-full h-2.5 mt-4">
+                    <div id="progress-bar" class="bg-amber-400 h-2.5 rounded-full" style="width: 0%"></div>
+                </div>
+            </div>
+            <div id="loading-indicator" class="hidden flex-col items-center space-y-2">
+                <div class="loader"></div>
+                <p class="text-amber-300">Generating audio, please wait...</p>
+            </div>
+            <div id="error-message" class="hidden text-red-400 text-center"></div>
+        </div>
+    </div>
+
+    <script type="module">
+        // --- Main Application Logic ---
+        const scriptDisplay = document.getElementById('script-display');
+        const playPauseBtn = document.getElementById('play-pause-btn');
+        const playIcon = document.getElementById('play-icon');
+        const pauseIcon = document.getElementById('pause-icon');
+        const progressBar = document.getElementById('progress-bar');
+        const loadingIndicator = document.getElementById('loading-indicator');
+        const playerUI = document.getElementById('player-ui');
+        const errorMessage = document.getElementById('error-message');
+
+        let audioContext;
+        let isPlaying = false;
+        let currentLineIndex = 0;
+        let audioQueue = [];
+        let sfx = {};
+        let isGenerating = false;
+
+        // --- Script Definition ---
+        const script = [
+            { type: 'music', action: 'start', mood: 'tense' },
+            { speaker: 'NARRATOR', line: "The city is a skeleton, picked clean by time." },
+            { type: 'sfx', action: 'start', sound: 'wind' },
+            { speaker: 'NARRATOR', line: "A hollow wind howls through the decaying remains of once-thriving buildings, and the flickering neon signs that still cling to life cast a broken reflection in the puddles below." },
+            { type: 'sfx', action: 'start', sound: 'drips' },
+            { speaker: 'NARRATOR', line: "Deep within this urban graveyard lies the cavernous, shadowed terminal of an abandoned train station." },
+            { speaker: 'NARRATOR', line: "Here, where ivy strangles cracked pillars and dust dances in the stale air, a single spark of light appears." },
+            { type: 'sfx', action: 'play', sound: 'matchStrike' },
+            { speaker: 'AUREN', line: "Just a little longer.", style: 'muttering, anxious' },
+            { type: 'sfx', action: 'start', sound: 'footsteps' },
+            { speaker: 'NARRATOR', line: "A sound. Auren whirls, his breath catching in his throat." },
+            { type: 'sfx', action: 'play', sound: 'lampOut' },
+            { type: 'sfx', action: 'stop', sound: 'footsteps' },
+            { speaker: 'ZIVAH', line: "If you’re trying to disappear, you’re doing a terrible job.", style: 'clear, confident' },
+            { type: 'sfx', action: 'play', sound: 'pipeDrop' },
+            { speaker: 'AUREN', line: "You followed me.", style: 'relieved but annoyed' },
+            { speaker: 'ZIVAH', line: "You left a trail of smoldering breadcrumbs." },
+            { speaker: 'AUREN', line: "It’s not safe." },
+            { speaker: 'ZIVAH', line: "Since when has that stopped you?", style: 'smirking' },
+            { speaker: 'AUREN', line: "I felt... something. In the air. Like...", style: 'serious' },
+            { type: 'sfx', action: 'play', sound: 'thunder' },
+            { speaker: 'ZIVAH', line: "The Surge?", style: 'serious' },
+            { speaker: 'AUREN', line: "It’s building again." },
+            { type: 'sfx', action: 'start', sound: 'hum' },
+            { speaker: 'ZIVAH', line: "That’s not wind.", style: 'alarmed' },
+            { speaker: 'AUREN', line: "It’s waking up again. The Old Sparks... the map led here. The glyphs confirm it." },
+            { type: 'sfx', action: 'play', sound: 'panelOpen' },
+            { speaker: 'NARRATOR', line: "A hidden panel slides away, revealing a staircase spiraling down into deeper darkness." },
+            { speaker: 'NARRATOR', line: "As they descend, the hum grows louder—a metallic, unnatural pulse, like the beating of a mechanical heart." },
+            { type: 'music', action: 'swell' },
+            { type: 'sfx', action: 'stop', sound: 'all' },
+            { type: 'music', action: 'stop' }
+        ];
+
+        // --- Voice & Sound Configuration ---
+        const voiceConfig = {
+            'NARRATOR': { voiceName: 'Charon' }, // Informative, clear
+            'AUREN': { voiceName: 'Leda' },      // Youthful, tense
+            'ZIVAH': { voiceName: 'Kore' },      // Firm, confident
+            'VAEL': { voiceName: 'Gacrux' },     // Mature, ruthless
+            'ENFORCER': { voiceName: 'Orus' }    // Firm, professional
+        };
+
+        // --- Utility Functions ---
+        function showError(message) {
+            errorMessage.textContent = message;
+            errorMessage.classList.remove('hidden');
+            loadingIndicator.classList.add('hidden');
+            playerUI.classList.remove('hidden');
+            isGenerating = false;
+        }
+
+        function base64ToArrayBuffer(base64) {
+            const binaryString = window.atob(base64);
+            const len = binaryString.length;
+            const bytes = new Uint8Array(len);
+            for (let i = 0; i < len; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+            }
+            return bytes.buffer;
+        }
+        
+        function pcmToWav(pcmData, sampleRate) {
+            const numChannels = 1;
+            const bytesPerSample = 2; // 16-bit PCM
+            const blockAlign = numChannels * bytesPerSample;
+            const byteRate = sampleRate * blockAlign;
+            const dataSize = pcmData.length * bytesPerSample;
+            const buffer = new ArrayBuffer(44 + dataSize);
+            const view = new DataView(buffer);
+
+            function writeString(view, offset, string) {
+                for (let i = 0; i < string.length; i++) {
+                    view.setUint8(offset + i, string.charCodeAt(i));
+                }
+            }
+
+            writeString(view, 0, 'RIFF');
+            view.setUint32(4, 36 + dataSize, true);
+            writeString(view, 8, 'WAVE');
+            writeString(view, 12, 'fmt ');
+            view.setUint32(16, 16, true);
+            view.setUint16(20, 1, true); // PCM
+            view.setUint16(22, numChannels, true);
+            view.setUint32(24, sampleRate, true);
+            view.setUint32(28, byteRate, true);
+            view.setUint16(32, blockAlign, true);
+            view.setUint16(34, 16, true); // 16-bit
+            writeString(view, 36, 'data');
+            view.setUint32(40, dataSize, true);
+
+            // Write PCM data
+            let offset = 44;
+            for (let i = 0; i < pcmData.length; i++, offset += 2) {
+                view.setInt16(offset, pcmData[i], true);
+            }
+
+            return new Blob([view], { type: 'audio/wav' });
+        }
+
+
+        // --- Sound Effect Generation (Tone.js) ---
+        function initializeSFX() {
+            sfx.wind = new Tone.Noise('brown').set({ volume: -30, fadeOut: 2 }).toDestination();
+            sfx.drips = new Tone.MembraneSynth({
+                pitchDecay: 0.05,
+                octaves: 10,
+                oscillator: { type: 'sine' },
+                envelope: { attack: 0.001, decay: 0.4, sustain: 0.01, release: 1.4, attackCurve: 'exponential' }
+            }).toDestination();
+            sfx.hum = new Tone.AMOscillator('F#2', 'sine', 'sine').set({ volume: -25, harmonicity: 0.5 }).toDestination();
+            sfx.music = new Tone.PolySynth(Tone.Synth, {
+                oscillator: { type: "amsine", harmonicity: 1.01 },
+                envelope: { attack: 0.1, decay: 0.2, sustain: 0.5, release: 2 },
+                volume: -15
+            }).toDestination();
+            sfx.reverb = new Tone.Reverb({ decay: 4, wet: 0.4 }).toDestination();
+            Object.values(sfx).forEach(node => node.connect?.(sfx.reverb));
+        }
+
+        function handleSfx(action, sound) {
+            switch (sound) {
+                case 'wind':
+                    action === 'start' ? sfx.wind.start() : sfx.wind.stop();
+                    break;
+                case 'drips':
+                    if (action === 'start') {
+                        sfx.dripsLoop = new Tone.Loop(time => {
+                            sfx.drips.triggerAttackRelease('C4', '8n', time);
+                        }, "2.5s").start(0);
+                        Tone.Transport.start();
+                    } else {
+                        sfx.dripsLoop?.stop().dispose();
+                        Tone.Transport.stop();
+                    }
+                    break;
+                case 'hum':
+                    action === 'start' ? sfx.hum.start() : sfx.hum.stop();
+                    break;
+                case 'matchStrike':
+                    new Tone.Player("data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAAABkYXRhAAAAAA==").toDestination().start(); // Placeholder for a real sound
+                    const noiseSynth = new Tone.NoiseSynth({ noise: { type: 'white' }, envelope: { attack: 0.001, decay: 0.1, sustain: 0 } }).toDestination();
+                    noiseSynth.triggerAttackRelease("0.1");
+                    break;
+                case 'lampOut':
+                    const windSynth = new Tone.NoiseSynth({ noise: { type: 'pink' }, envelope: { attack: 0.01, decay: 0.2, sustain: 0.1, release: 0.2 } }).toDestination();
+                    windSynth.triggerAttackRelease("0.3");
+                    break;
+                case 'pipeDrop':
+                    const metalSynth = new Tone.MembraneSynth({ pitchDecay: 0.1, octaves: 2, envelope: { attack: 0.001, decay: 0.5, release: 1 } }).toDestination();
+                    metalSynth.triggerAttackRelease("C2", "8n");
+                    break;
+                case 'thunder':
+                    const thunderNoise = new Tone.Noise('brown').set({ volume: -10, fadeOut: 3 }).toDestination();
+                    thunderNoise.start().stop("+3");
+                    break;
+                case 'panelOpen':
+                    const panelNoise = new Tone.NoiseSynth({ noise: { type: 'white' }, envelope: { attack: 0.1, decay: 1.5, sustain: 0.2, release: 0.5 } }).toDestination();
+                    panelNoise.triggerAttackRelease("1.5");
+                    break;
+                case 'all':
+                    Object.values(sfx).forEach(node => node.stop?.());
+                    sfx.dripsLoop?.stop().dispose();
+                    Tone.Transport.stop();
+                    break;
+            }
+        }
+        
+        function handleMusic(action, mood) {
+            if (action === 'start') {
+                sfx.music.triggerAttackRelease(['C2', 'G2', 'Eb3'], '8n');
+            } else if (action === 'swell') {
+                sfx.music.triggerAttackRelease(['F#2', 'C#3', 'A3'], '4n');
+            } else if (action === 'stop') {
+                 // Music fades out naturally via release
+            }
+        }
+
+        // --- Audio Generation (Gemini API) ---
+        async function generateAudio(text, speaker) {
+            const apiKey = ""; // Provided by the environment
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${apiKey}`;
+            
+            const payload = {
+                model: "gemini-2.5-flash-preview-tts",
+                contents: [{ parts: [{ text: text }] }],
+                generationConfig: {
+                    responseModalities: ["AUDIO"],
+                    speechConfig: {
+                        voiceConfig: {
+                            prebuiltVoiceConfig: voiceConfig[speaker]
+                        }
+                    }
+                }
+            };
+            
+            // Exponential backoff for retries
+            let response;
+            let delay = 1000;
+            for (let i = 0; i < 5; i++) {
+                try {
+                    response = await fetch(apiUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+                    if (response.ok) break;
+                } catch (error) {
+                    console.error(`Attempt ${i+1} failed:`, error);
+                }
+                await new Promise(resolve => setTimeout(resolve, delay));
+                delay *= 2;
+            }
+
+            if (!response || !response.ok) {
+                throw new Error(`API request failed with status ${response?.status}`);
+            }
+
+            const result = await response.json();
+            const part = result?.candidates?.[0]?.content?.parts?.[0];
+            const audioData = part?.inlineData?.data;
+            const mimeType = part?.inlineData?.mimeType;
+
+            if (audioData && mimeType && mimeType.startsWith("audio/")) {
+                const sampleRate = parseInt(mimeType.match(/rate=(\d+)/)[1], 10);
+                const pcmData = base64ToArrayBuffer(audioData);
+                const pcm16 = new Int16Array(pcmData);
+                const wavBlob = pcmToWav(pcm16, sampleRate);
+                return URL.createObjectURL(wavBlob);
+            } else {
+                console.error("Unexpected API response structure:", result);
+                throw new Error("Failed to extract audio data from API response.");
+            }
+        }
+        
+        // --- Playback Logic ---
+        function playNextLine() {
+            if (currentLineIndex >= script.length || !isPlaying) {
+                isPlaying = false;
+                updatePlayPauseButton();
+                return;
+            }
+
+            const currentItem = script[currentLineIndex];
+            highlightCurrentLine();
+
+            if (currentItem.type === 'sfx') {
+                handleSfx(currentItem.action, currentItem.sound);
+                currentLineIndex++;
+                playNextLine();
+            } else if (currentItem.type === 'music') {
+                handleMusic(currentItem.action, currentItem.mood);
+                currentLineIndex++;
+                playNextLine();
+            } else {
+                const audioUrl = audioQueue[currentLineIndex];
+                if (audioUrl) {
+                    const audio = new Audio(audioUrl);
+                    audio.play();
+                    audio.onended = () => {
+                        currentLineIndex++;
+                        updateProgressBar();
+                        playNextLine();
+                    };
+                } else {
+                    // Should not happen if pre-generation is complete
+                    console.error("Audio not ready for line:", currentLineIndex);
+                    isPlaying = false;
+                    updatePlayPauseButton();
+                }
+            }
+        }
+
+        async function pregenerateAllAudio() {
+            if (isGenerating) return;
+            isGenerating = true;
+            loadingIndicator.classList.remove('hidden');
+            playerUI.classList.add('hidden');
+            errorMessage.classList.add('hidden');
+
+            try {
+                const audioPromises = script.map(item => {
+                    if (item.speaker && item.line) {
+                        const styledLine = item.style ? `Say in a ${item.style} tone: ${item.line}` : item.line;
+                        return generateAudio(styledLine, item.speaker);
+                    }
+                    return Promise.resolve(null); // Placeholder for non-audio lines
+                });
+
+                audioQueue = await Promise.all(audioPromises);
+                
+                isGenerating = false;
+                loadingIndicator.classList.add('hidden');
+                playerUI.classList.remove('hidden');
+                
+                // Automatically start playing after generation
+                isPlaying = true;
+                updatePlayPauseButton();
+                playNextLine();
+
+            } catch (error) {
+                console.error("Error during audio generation:", error);
+                showError("Could not generate audio. Please try again later.");
+            }
+        }
+        
+        // --- UI Updates ---
+        function updatePlayPauseButton() {
+            if (isPlaying) {
+                playIcon.classList.add('hidden');
+                pauseIcon.classList.remove('hidden');
+            } else {
+                playIcon.classList.remove('hidden');
+                pauseIcon.classList.add('hidden');
+            }
+        }
+
+        function highlightCurrentLine() {
+            document.querySelectorAll('.script-line').forEach((el, index) => {
+                if (index === currentLineIndex) {
+                    el.classList.add('highlight');
+                    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                } else {
+                    el.classList.remove('highlight');
+                }
+            });
+        }
+        
+        function updateProgressBar() {
+            const progress = (currentLineIndex / script.length) * 100;
+            progressBar.style.width = `${progress}%`;
+        }
+
+        function populateScriptDisplay() {
+            script.forEach((item, index) => {
+                if (item.speaker) {
+                    const lineEl = document.createElement('div');
+                    lineEl.classList.add('script-line', 'mb-3');
+                    lineEl.dataset.index = index;
+
+                    const speakerEl = document.createElement('strong');
+                    speakerEl.classList.add('text-amber-300');
+                    speakerEl.textContent = `${item.speaker}: `;
+                    
+                    const textEl = document.createElement('span');
+                    textEl.textContent = item.line;
+
+                    lineEl.appendChild(speakerEl);
+                    lineEl.appendChild(textEl);
+                    scriptDisplay.appendChild(lineEl);
+                } else if (item.type === 'sfx' || item.type === 'music') {
+                     const sfxEl = document.createElement('div');
+                     sfxEl.classList.add('script-line', 'text-gray-500', 'italic', 'my-2', 'text-center');
+                     sfxEl.dataset.index = index;
+                     sfxEl.textContent = `[${item.type.toUpperCase()}: ${item.action} ${item.sound || item.mood || ''}]`;
+                     scriptDisplay.appendChild(sfxEl);
+                }
+            });
+        }
+        
+        // --- Event Listeners ---
+        playPauseBtn.addEventListener('click', async () => {
+            if (!audioContext) {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                await Tone.start();
+                initializeSFX();
+            }
+
+            if (isGenerating) return;
+
+            if (audioQueue.length === 0) {
+                pregenerateAllAudio();
+            } else {
+                isPlaying = !isPlaying;
+                updatePlayPauseButton();
+                if (isPlaying) {
+                    playNextLine();
+                }
+            }
+        });
+
+        // --- Initialization ---
+        window.onload = () => {
+            populateScriptDisplay();
+        };
+
+    </script>
+</body>
+</html>
