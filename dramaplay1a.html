@@ -270,20 +270,19 @@
 
         // --- Audio Generation (Gemini API) ---
         async function generateAudio(text, speaker) {
-            const apiKey = "AIzaSyCX19N3c_Kgxh42bMdz9xEZKu9rgQebQ04"; // **UPDATED: Using your new API key**
+            const apiKey = "AIzaSyCX19N3c_Kgxh42bMdz9xEZKu9rgQebQ04"; // Using your provided API key
             const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${apiKey}`;
             
-            // Get the voice config for the speaker, or a default if not found
             const selectedVoiceConfig = voiceConfig[speaker] || { voiceName: 'Kore' };
 
             const payload = {
-                contents: [{ parts: [{ text: text }] }], // text already includes style if any
+                contents: [{ parts: [{ text: text }] }],
                 generationConfig: {
                     responseModalities: ["AUDIO"],
                     speechConfig: {
                         voiceConfig: {
                             prebuiltVoiceConfig: {
-                                voiceName: selectedVoiceConfig.voiceName // Only pass the voiceName
+                                voiceName: selectedVoiceConfig.voiceName
                             }
                         }
                     }
@@ -291,8 +290,8 @@
                 model: "gemini-2.5-flash-preview-tts"
             };
             
-            console.log("API Request URL:", apiUrl); // Log API URL
-            console.log("API Request Payload:", JSON.stringify(payload, null, 2)); // Log API Payload
+            console.log("API Request URL:", apiUrl);
+            console.log("API Request Payload:", JSON.stringify(payload, null, 2));
 
             let response;
             let delay = 1000;
@@ -307,30 +306,26 @@
                     });
 
                     if (response.ok) {
-                        break; // Success, exit retry loop
+                        break;
                     } else {
-                        // Attempt to parse error body, but be robust
                         let errorBody = '';
                         try {
-                            errorBody = await response.text(); // Read as text first
-                            const jsonAttempt = JSON.parse(errorBody); // Then try to parse as JSON
-                            errorBody = jsonAttempt; // Use parsed JSON if successful
-                        } catch (parseError) {
-                            // If it's not JSON, errorBody already holds the text
-                        }
+                            errorBody = await response.text();
+                            const jsonAttempt = JSON.parse(errorBody);
+                            errorBody = jsonAttempt;
+                        } catch (parseError) {}
 
                         console.error(`Attempt ${i + 1}: API Error: ${response.status} ${response.statusText}`, errorBody);
 
-                        if (response.status === 429) { // Too Many Requests
+                        if (response.status === 429) {
                             console.warn(`Attempt ${i + 1}: Rate limit hit. Retrying in ${delay / 1000}s...`);
                         } else {
-                            // For other non-OK statuses, throw immediately after logging
                             throw new Error(`API request failed with status ${response.status}: ${typeof errorBody === 'object' ? JSON.stringify(errorBody) : errorBody}`);
                         }
                     }
                 } catch (fetchError) {
                     console.error(`Attempt ${i + 1}: Fetch error:`, fetchError);
-                    if (i === maxRetries - 1) { // If last attempt failed
+                    if (i === maxRetries - 1) {
                         throw new Error(`Failed to fetch from API after ${maxRetries} retries: ${fetchError.message}`);
                     }
                 }
@@ -342,11 +337,10 @@
                 throw new Error(`Failed to get a successful API response after multiple retries.`);
             }
 
-            // Now safely process the successful response
-            const resultText = await response.text(); // Read raw text first
+            const resultText = await response.text();
             let result;
             try {
-                result = JSON.parse(resultText); // Parse text as JSON
+                result = JSON.parse(resultText);
             } catch (jsonParseError) {
                 console.error("Failed to parse API response as JSON:", resultText, jsonParseError);
                 throw new Error("Invalid JSON response from API.");
@@ -356,14 +350,13 @@
             const audioData = part?.inlineData?.data;
             const mimeType = part?.inlineData?.mimeType;
 
-            // Make sure the mimeType is specifically audio/L16 for signed 16-bit PCM
             if (audioData && mimeType && mimeType.startsWith("audio/L16")) {
                 const match = mimeType.match(/rate=(\d+)/);
-                const sampleRate = match ? parseInt(match[1], 10) : 16000; // Default to 16kHz if not specified
+                const sampleRate = match ? parseInt(match[1], 10) : 16000;
 
-                const pcmBuffer = base64ToArrayBuffer(audioData); // ArrayBuffer
-                const pcm16 = new Int16Array(pcmBuffer); // Int16Array VIEW of the ArrayBuffer
-                const wavBlob = pcmToWav(pcm16, sampleRate); // Passes Int16Array
+                const pcmBuffer = base64ToArrayBuffer(audioData);
+                const pcm16 = new Int16Array(pcmBuffer);
+                const wavBlob = pcmToWav(pcm16, sampleRate);
                 return URL.createObjectURL(wavBlob);
             } else {
                 console.error("Unexpected API response structure or mimeType:", result);
@@ -376,7 +369,6 @@
             if (currentLineIndex >= script.length || !isPlaying) {
                 isPlaying = false;
                 updatePlayPauseButton();
-                // Optionally stop all SFX and music when playback ends
                 handleSfx('stop', 'all');
                 handleMusic('stop');
                 return;
@@ -384,17 +376,17 @@
 
             const currentItem = script[currentLineIndex];
             highlightCurrentLine();
-            updateProgressBar(); // Update progress bar for current line
+            updateProgressBar();
 
             if (currentItem.type === 'sfx') {
                 handleSfx(currentItem.action, currentItem.sound);
                 currentLineIndex++;
-                playNextLine(); // Immediately play the next item
+                playNextLine();
             } else if (currentItem.type === 'music') {
                 handleMusic(currentItem.action, currentItem.mood);
                 currentLineIndex++;
-                playNextLine(); // Immediately play the next item
-            } else { // It's a spoken line
+                playNextLine();
+            } else {
                 const audioUrl = audioQueue[currentLineIndex];
                 if (audioUrl) {
                     const audio = new Audio(audioUrl);
@@ -420,22 +412,27 @@
             errorMessage.classList.add('hidden');
 
             try {
-                const audioPromises = script.map(async (item) => {
+                // Process audio generation sequentially with a delay
+                audioQueue = []; // Clear existing queue
+                for (let i = 0; i < script.length; i++) {
+                    const item = script[i];
                     if (item.speaker && item.line) {
-                        // Construct the prompt with style if available
                         const textToGenerate = item.style ? `Say in a ${item.style} tone: ${item.line}` : item.line;
-                        return await generateAudio(textToGenerate, item.speaker);
+                        const audioUrl = await generateAudio(textToGenerate, item.speaker);
+                        audioQueue[i] = audioUrl; // Store generated audio URL at its original script index
+                        // Add a delay between each TTS API call to respect rate limits
+                        if (i < script.length - 1) { // Don't delay after the last item
+                            await new Promise(resolve => setTimeout(resolve, 6000)); // 6-second delay
+                        }
+                    } else {
+                        audioQueue[i] = null; // Placeholder for non-audio lines
                     }
-                    return null; // Placeholder for non-audio lines
-                });
-
-                audioQueue = await Promise.all(audioPromises);
+                }
                 
                 isGenerating = false;
                 loadingIndicator.classList.add('hidden');
                 playerUI.classList.remove('hidden');
                 
-                // Automatically start playing after generation
                 isPlaying = true;
                 updatePlayPauseButton();
                 playNextLine();
@@ -458,8 +455,8 @@
         }
 
         function highlightCurrentLine() {
-            document.querySelectorAll('.script-line').forEach((el, index) => {
-                if (parseInt(el.dataset.index) === currentLineIndex) { // Parse data-index as integer
+            document.querySelectorAll('.script-line').forEach((el) => {
+                if (parseInt(el.dataset.index) === currentLineIndex) {
                     el.classList.add('highlight');
                     el.scrollIntoView({ behavior: 'smooth', block: 'center' });
                 } else {
@@ -469,7 +466,6 @@
         }
         
         function updateProgressBar() {
-            // Only count spoken lines for progress, or total relevant items
             const playableItems = script.filter(item => item.speaker || item.type === 'sfx' || item.type === 'music');
             const progress = (currentLineIndex / playableItems.length) * 100;
             progressBar.style.width = `${progress}%`;
@@ -480,7 +476,7 @@
                 if (item.speaker) {
                     const lineEl = document.createElement('div');
                     lineEl.classList.add('script-line', 'mb-3');
-                    lineEl.dataset.index = index; // Store original index
+                    lineEl.dataset.index = index;
 
                     const speakerEl = document.createElement('strong');
                     speakerEl.classList.add('text-amber-300');
@@ -495,7 +491,7 @@
                 } else if (item.type === 'sfx' || item.type === 'music') {
                     const sfxEl = document.createElement('div');
                     sfxEl.classList.add('script-line', 'text-gray-500', 'italic', 'my-2', 'text-center');
-                    sfxEl.dataset.index = index; // Store original index
+                    sfxEl.dataset.index = index;
                     sfxEl.textContent = `[${item.type.toUpperCase()}: ${item.action} ${item.sound || item.mood || ''}]`;
                     scriptDisplay.appendChild(sfxEl);
                 }
@@ -506,13 +502,14 @@
         playPauseBtn.addEventListener('click', async () => {
             if (!audioContext) {
                 audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                await Tone.start(); // Ensure Tone.js audio context is started
+                await Tone.start();
                 initializeSFX();
             }
 
-            if (isGenerating) return; // Prevent multiple generations
+            if (isGenerating) return;
 
-            if (audioQueue.length === 0) { // If audio hasn't been generated yet
+            if (audioQueue.length === 0 || currentLineIndex >= script.length) { // Regenerate if queue is empty or finished
+                currentLineIndex = 0; // Reset for new playback
                 pregenerateAllAudio();
             } else {
                 isPlaying = !isPlaying;
@@ -520,14 +517,7 @@
                 if (isPlaying) {
                     playNextLine();
                 } else {
-                    // Pause current audio playback if any
-                    // Note: 'new Audio()' instances are not centrally managed,
-                    // so pausing means stopping the current one and relying on playNextLine()
-                    // to pick up where it left off. For robust pausing, you'd manage Audio objects.
-                    // For now, this effectively "pauses" by stopping the current line and waiting
-                    // for the next click to resume.
                     console.log("Playback paused.");
-                    // Stop any active Tone.js loops/sounds that are continuous
                     if (sfx.dripsLoop) sfx.dripsLoop.stop();
                     if (sfx.wind.state === 'started') sfx.wind.stop();
                     if (sfx.hum.state === 'started') sfx.hum.stop();
@@ -538,7 +528,6 @@
         // --- Initialization ---
         window.onload = () => {
             populateScriptDisplay();
-            // Initialize progress bar
             updateProgressBar();
         };
 
