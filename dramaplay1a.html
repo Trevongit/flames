@@ -127,6 +127,8 @@
 
         // --- Script Definition ---
         const script = [
+            // Pre-recorded Introduction Music/Narration
+            { type: 'static_audio', url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3', duration: 10, description: 'Introductory Music' },
             { type: 'music', action: 'start', mood: 'tense', duration: 5 }, // Estimated duration for non-TTS items
             { speaker: 'NARRATOR', line: "The city is a skeleton, picked clean by time." },
             { type: 'sfx', action: 'start', sound: 'wind', duration: 3 },
@@ -504,7 +506,7 @@
             highlightCurrentLine();
             updateProgressBar();
 
-            if (currentItem.type === 'speech') {
+            if (currentItem.type === 'speech' || currentItem.type === 'static_audio') { // Combined handling
                 currentAudio = new Audio(currentItem.url);
                 currentAudio.playbackRate = parseFloat(speedControl.value);
                 currentAudio.volume = parseFloat(volumeControl.value);
@@ -514,17 +516,18 @@
                 let lastTimeUpdate = 0;
                 currentAudio.ontimeupdate = () => {
                     const currentTime = currentAudio.currentTime;
-                    // Only update elapsed duration for the current line
-                    // Add difference from last update to elapsedDramaDuration
                     elapsedDramaDuration += (currentTime - lastTimeUpdate);
                     lastTimeUpdate = currentTime;
                     updateProgressBar();
                 };
 
                 currentAudio.onended = () => {
-                    URL.revokeObjectURL(currentItem.url); // Clean up object URL after playing
+                    // Only revoke object URL for dynamically generated audio (not static_audio if it's external)
+                    if (currentItem.type === 'speech') {
+                       URL.revokeObjectURL(currentItem.url); 
+                    }
                     currentLineIndex++;
-                    elapsedDramaDuration += (currentItem.duration - lastTimeUpdate); // Add remaining duration if any
+                    elapsedDramaDuration += (currentItem.duration - lastTimeUpdate);
                     lastTimeUpdate = 0;
                     playNextLine();
                 };
@@ -566,7 +569,14 @@
             try {
                 for (let i = 0; i < script.length; i++) {
                     const item = script[i];
-                    if (item.speaker && item.line) {
+
+                    if (item.type === 'static_audio') {
+                        loadingText.textContent = `Loading introductory audio...`;
+                        const audioUrl = item.url;
+                        const duration = await getAudioDuration(audioUrl);
+                        audioQueue[i] = { type: 'static_audio', url: audioUrl, duration: duration, description: item.description };
+                        totalDramaDuration += duration;
+                    } else if (item.speaker && item.line) {
                         loadingText.textContent = `Generating audio (${++generatedSpeechLines}/${speechLinesToGenerate})...`;
                         const textToGenerate = item.style ? `Say in a ${item.style} tone: ${item.line}` : item.line;
                         const audioInfo = await generateAudio(textToGenerate, item.speaker, i); // returns {url, duration}
@@ -654,6 +664,12 @@
                     sfxEl.dataset.index = index;
                     sfxEl.textContent = `[${item.type.toUpperCase()}: ${item.action} ${item.sound || item.mood || ''}]`;
                     scriptDisplay.appendChild(sfxEl);
+                } else if (item.type === 'static_audio') { // New: static audio line
+                    const staticAudioEl = document.createElement('div');
+                    staticAudioEl.classList.add('script-line', 'text-gray-500', 'italic', 'my-2', 'text-center');
+                    staticAudioEl.dataset.index = index;
+                    staticAudioEl.textContent = `[INTRO: ${item.description}]`;
+                    scriptDisplay.appendChild(staticAudioEl);
                 }
             });
         }
@@ -744,15 +760,12 @@
                 }
             }
             // If seeking mid-speech line, calculate the offset
-            if (audioQueue[currentLineIndex] && audioQueue[currentLineIndex].type === 'speech' && accumulatedDuration > seekTime) {
+            if (audioQueue[currentLineIndex] && (audioQueue[currentLineIndex].type === 'speech' || audioQueue[currentLineIndex].type === 'static_audio') && accumulatedDuration > seekTime) {
                 const previousItemsDuration = accumulatedDuration - audioQueue[currentLineIndex].duration;
                 const offsetInCurrentLine = seekTime - previousItemsDuration;
                 if (offsetInCurrentLine > 0) {
-                    // This is more complex for HTMLAudioElement as you can't just set current time then play.
-                    // For this basic seek, we'll just start from the beginning of the target line.
-                    // A more advanced solution would involve a single AudioBufferSourceNode and fine-grained control.
                     // For now, seeking jumps to the start of the closest line.
-                    console.warn("Seeking within a speech line is not precisely supported; starting from the beginning of the closest line.");
+                    console.warn("Seeking within an audio line is not precisely supported; starting from the beginning of the closest line.");
                     elapsedDramaDuration -= (audioQueue[currentLineIndex].duration - offsetInCurrentLine);
                 }
             }
