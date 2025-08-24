@@ -32,6 +32,10 @@
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
         }
+        #script-display {
+            max-height: 80vh; /* Use viewport height for flexibility */
+            min-height: 20rem;
+        }
     </style>
 </head>
 <body class="flex items-center justify-center min-h-screen bg-gray-900">
@@ -41,14 +45,16 @@
             <p class="text-lg sm:text-xl text-gray-300">Chapter 1: A Spark in the Dark</p>
         </header>
 
-        <div id="script-display" class="script-font bg-gray-900/50 rounded-lg p-4 sm:p-6 h-80 overflow-y-auto border border-gray-700 mb-6 text-gray-300 text-sm sm:text-base">
+        <div id="script-display" class="script-font bg-gray-900/50 rounded-lg p-4 sm:p-6 overflow-y-auto border border-gray-700 mb-6 text-gray-300 text-sm sm:text-base">
             <!-- Script lines will be injected here -->
         </div>
 
         <div id="controls" class="flex flex-col items-center space-y-4">
             <div id="player-ui" class="w-full">
-                <div class="flex items-center justify-center space-x-4">
-                    <button id="play-pause-btn" class="bg-amber-400 hover:bg-amber-500 text-gray-900 font-bold p-4 rounded-full shadow-lg transition-transform transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-amber-300">
+                <div class="flex items-center justify-center space-x-4 mb-4">
+                    <button id="play-pause-btn"
+                            class="bg-amber-400 hover:bg-amber-500 text-gray-900 font-bold p-4 rounded-full shadow-lg transition-transform transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-amber-300"
+                            aria-label="Play or pause audio drama">
                         <svg id="play-icon" xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" viewBox="0 0 20 20" fill="currentColor">
                             <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clip-rule="evenodd" />
                         </svg>
@@ -57,13 +63,37 @@
                         </svg>
                     </button>
                 </div>
-                <div class="w-full bg-gray-700 rounded-full h-2.5 mt-4">
+                <div id="progress-container" class="w-full bg-gray-700 rounded-full h-2.5 mb-4 cursor-pointer">
                     <div id="progress-bar" class="bg-amber-400 h-2.5 rounded-full" style="width: 0%"></div>
                 </div>
+
+                <div class="flex items-center justify-between w-full space-x-4 mb-4">
+                    <label for="volume-control" class="text-gray-300 text-sm">Volume:</label>
+                    <input type="range" id="volume-control" min="0" max="1" step="0.05" value="0.75" class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer range-amber">
+                    <style>
+                        .range-amber::-webkit-slider-thumb {
+                            background-color: #fbbf24;
+                        }
+                        .range-amber::-moz-range-thumb {
+                            background-color: #fbbf24;
+                        }
+                    </style>
+                </div>
+
+                <div class="flex items-center justify-between w-full space-x-4">
+                    <label for="speed-control" class="text-gray-300 text-sm">Speed:</label>
+                    <select id="speed-control" class="bg-gray-700 border border-gray-600 text-gray-300 text-sm rounded-lg focus:ring-amber-500 focus:border-amber-500 block p-2.5">
+                        <option value="1.0">1x</option>
+                        <option value="1.25">1.25x</option>
+                        <option value="1.5">1.5x</option>
+                        <option value="2.0">2x</option>
+                    </select>
+                </div>
+
             </div>
             <div id="loading-indicator" class="hidden flex-col items-center space-y-2">
                 <div class="loader"></div>
-                <p class="text-amber-300">Generating audio, please wait...</p>
+                <p id="loading-text" class="text-amber-300">Generating audio, please wait...</p>
             </div>
             <div id="error-message" class="hidden text-red-400 text-center"></div>
         </div>
@@ -76,60 +106,68 @@
         const playIcon = document.getElementById('play-icon');
         const pauseIcon = document.getElementById('pause-icon');
         const progressBar = document.getElementById('progress-bar');
+        const progressContainer = document.getElementById('progress-container');
         const loadingIndicator = document.getElementById('loading-indicator');
+        const loadingText = document.getElementById('loading-text');
         const playerUI = document.getElementById('player-ui');
         const errorMessage = document.getElementById('error-message');
+        const volumeControl = document.getElementById('volume-control');
+        const speedControl = document.getElementById('speed-control');
 
         let audioContext;
         let isPlaying = false;
+        let currentAudio = null; // Reference to the currently playing HTMLAudioElement
+        let currentTonePlayer = null; // Reference to the currently playing Tone.Player
         let currentLineIndex = 0;
-        let audioQueue = [];
+        let audioQueue = []; // Stores structured objects: { type: 'speech', url, speaker, duration } or { type: 'sfx', sound, duration }
         let sfx = {};
         let isGenerating = false;
+        let totalDramaDuration = 0; // Total duration of all playable items in seconds
+        let elapsedDramaDuration = 0; // Elapsed duration for progress bar
 
         // --- Script Definition ---
         const script = [
-            { type: 'music', action: 'start', mood: 'tense' },
+            { type: 'music', action: 'start', mood: 'tense', duration: 5 }, // Estimated duration for non-TTS items
             { speaker: 'NARRATOR', line: "The city is a skeleton, picked clean by time." },
-            { type: 'sfx', action: 'start', sound: 'wind' },
+            { type: 'sfx', action: 'start', sound: 'wind', duration: 3 },
             { speaker: 'NARRATOR', line: "A hollow wind howls through the decaying remains of once-thriving buildings, and the flickering neon signs that still cling to life cast a broken reflection in the puddles below." },
-            { type: 'sfx', action: 'start', sound: 'drips' },
+            { type: 'sfx', action: 'start', sound: 'drips', duration: 4 },
             { speaker: 'NARRATOR', line: "Deep within this urban graveyard lies the cavernous, shadowed terminal of an abandoned train station." },
             { speaker: 'NARRATOR', line: "Here, where ivy strangles cracked pillars and dust dances in the stale air, a single spark of light appears." },
-            { type: 'sfx', action: 'play', sound: 'matchStrike' },
+            { type: 'sfx', action: 'play', sound: 'matchStrike', duration: 0.5 },
             { speaker: 'AUREN', line: "Just a little longer.", style: 'muttering, anxious' },
-            { type: 'sfx', action: 'start', sound: 'footsteps' },
+            { type: 'sfx', action: 'start', sound: 'footsteps', duration: 2 },
             { speaker: 'NARRATOR', line: "A sound. Auren whirls, his breath catching in his throat." },
-            { type: 'sfx', action: 'play', sound: 'lampOut' },
-            { type: 'sfx', action: 'stop', sound: 'footsteps' },
+            { type: 'sfx', action: 'play', sound: 'lampOut', duration: 1 },
+            { type: 'sfx', action: 'stop', sound: 'footsteps', duration: 0 },
             { speaker: 'ZIVAH', line: "If you’re trying to disappear, you’re doing a terrible job.", style: 'clear, confident' },
-            { type: 'sfx', action: 'play', sound: 'pipeDrop' },
+            { type: 'sfx', action: 'play', sound: 'pipeDrop', duration: 1 },
             { speaker: 'AUREN', line: "You followed me.", style: 'relieved but annoyed' },
             { speaker: 'ZIVAH', line: "You left a trail of smoldering breadcrumbs." },
             { speaker: 'AUREN', line: "It’s not safe." },
             { speaker: 'ZIVAH', line: "Since when has that stopped you?", style: 'smirking' },
             { speaker: 'AUREN', line: "I felt... something. In the air. Like...", style: 'serious' },
-            { type: 'sfx', action: 'play', sound: 'thunder' },
+            { type: 'sfx', action: 'play', sound: 'thunder', duration: 3 },
             { speaker: 'ZIVAH', line: "The Surge?", style: 'serious' },
             { speaker: 'AUREN', line: "It’s building again." },
-            { type: 'sfx', action: 'start', sound: 'hum' },
+            { type: 'sfx', action: 'start', sound: 'hum', duration: 5 },
             { speaker: 'ZIVAH', line: "That’s not wind.", style: 'alarmed' },
             { speaker: 'AUREN', line: "It’s waking up again. The Old Sparks... the map led here. The glyphs confirm it." },
-            { type: 'sfx', action: 'play', sound: 'panelOpen' },
+            { type: 'sfx', action: 'play', sound: 'panelOpen', duration: 2 },
             { speaker: 'NARRATOR', line: "A hidden panel slides away, revealing a staircase spiraling down into deeper darkness." },
             { speaker: 'NARRATOR', line: "As they descend, the hum grows louder—a metallic, unnatural pulse, like the beating of a mechanical heart." },
-            { type: 'music', action: 'swell' },
-            { type: 'sfx', action: 'stop', sound: 'all' },
-            { type: 'music', action: 'stop' }
+            { type: 'music', action: 'swell', duration: 5 },
+            { type: 'sfx', action: 'stop', sound: 'all', duration: 0 },
+            { type: 'music', action: 'stop', duration: 0 }
         ];
 
         // --- Voice & Sound Configuration ---
         const voiceConfig = {
-            'NARRATOR': { voiceName: 'Charon' }, // Informative, clear
-            'AUREN': { voiceName: 'Leda' },      // Youthful, tense
-            'ZIVAH': { voiceName: 'Kore' },      // Firm, confident
-            'VAEL': { voiceName: 'Gacrux' },     // Mature, ruthless
-            'ENFORCER': { voiceName: 'Orus' }    // Firm, professional
+            'NARRATOR': { voiceName: 'Charon' },
+            'AUREN': { voiceName: 'Leda' },
+            'ZIVAH': { voiceName: 'Kore' },
+            'VAEL': { voiceName: 'Gacrux' },
+            'ENFORCER': { voiceName: 'Orus' }
         };
 
         // --- Utility Functions ---
@@ -151,14 +189,12 @@
             return bytes.buffer;
         }
         
-        // Function to convert PCM data to WAV Blob
-        // The API returns signed PCM16 audio data, which needs to be wrapped in a WAV header.
-        function pcmToWav(pcmData, sampleRate) { // pcmData is an Int16Array
+        function pcmToWav(pcmData, sampleRate) {
             const numChannels = 1;
-            const bytesPerSample = 2; // 16-bit PCM
+            const bytesPerSample = 2;
             const blockAlign = numChannels * bytesPerSample;
             const byteRate = sampleRate * blockAlign;
-            const dataSize = pcmData.length * bytesPerSample; // Correct: length of Int16Array * 2 bytes/sample
+            const dataSize = pcmData.length * bytesPerSample;
             const buffer = new ArrayBuffer(44 + dataSize);
             const view = new DataView(buffer);
 
@@ -182,7 +218,6 @@
             writeString(view, 36, 'data');
             view.setUint32(40, dataSize, true);
 
-            // Write PCM data
             let offset = 44;
             for (let i = 0; i < pcmData.length; i++, offset += 2) {
                 view.setInt16(offset, pcmData[i], true);
@@ -191,40 +226,63 @@
             return new Blob([view], { type: 'audio/wav' });
         }
 
-        // --- Sound Effect Generation (Tone.js) ---
-        function initializeSFX() {
-            sfx.wind = new Tone.Noise('brown').set({ volume: -30, fadeOut: 2 }).toDestination();
-            sfx.drips = new Tone.MembraneSynth({
-                pitchDecay: 0.05,
-                octaves: 10,
-                oscillator: { type: 'sine' },
-                envelope: { attack: 0.001, decay: 0.4, sustain: 0.01, release: 1.4, attackCurve: 'exponential' }
-            }).toDestination();
-            sfx.hum = new Tone.AMOscillator('F#2', 'sine', 'sine').set({ volume: -25, harmonicity: 0.5 }).toDestination();
-            sfx.music = new Tone.PolySynth(Tone.Synth, {
-                oscillator: { type: "amsine", harmonicity: 1.01 },
-                envelope: { attack: 0.1, decay: 0.2, sustain: 0.5, release: 2 },
-                volume: -15
-            }).toDestination();
-            sfx.reverb = new Tone.Reverb({ decay: 4, wet: 0.4 }).toDestination();
-            // Connect SFX to reverb if desired, but for now direct to destination is fine for simple examples
-            // Object.values(sfx).forEach(node => node.connect?.(sfx.reverb));
+        // --- Tone.js Sound Effect Management ---
+        async function initializeSFX() {
+            try {
+                if (Tone.context.state !== 'running') {
+                    await Tone.start();
+                }
+                sfx.wind = new Tone.Noise('brown').set({ volume: -30, fadeOut: 2 }).toDestination();
+                sfx.drips = new Tone.MembraneSynth({
+                    pitchDecay: 0.05,
+                    octaves: 10,
+                    oscillator: { type: 'sine' },
+                    envelope: { attack: 0.001, decay: 0.4, sustain: 0.01, release: 1.4, attackCurve: 'exponential' }
+                }).toDestination();
+                sfx.hum = new Tone.AMOscillator('F#2', 'sine', 'sine').set({ volume: -25, harmonicity: 0.5 }).toDestination();
+                sfx.music = new Tone.PolySynth(Tone.Synth, {
+                    oscillator: { type: "amsine", harmonicity: 1.01 },
+                    envelope: { attack: 0.1, decay: 0.2, sustain: 0.5, release: 2 },
+                    volume: -15
+                }).toDestination();
+                sfx.reverb = new Tone.Reverb({ decay: 4, wet: 0.4 }).toDestination();
+            } catch (error) {
+                console.error("Failed to initialize Tone.js SFX:", error);
+                showError("Audio system failed to initialize. Please ensure your browser allows audio playback.");
+            }
+        }
+
+        function disposeSFX() {
+            Object.values(sfx).forEach(node => {
+                if (node.stop) node.stop();
+                if (node.dispose) node.dispose();
+            });
+            if (sfx.dripsLoop) {
+                sfx.dripsLoop.stop().dispose();
+                delete sfx.dripsLoop;
+            }
+            Tone.Transport.stop();
+            sfx = {}; // Reset sfx object
         }
 
         function handleSfx(action, sound) {
+            if (!Tone.context || Tone.context.state !== 'running') {
+                 console.warn("Tone.js AudioContext not running. SFX not played.");
+                 return;
+            }
             switch (sound) {
                 case 'wind':
                     action === 'start' ? sfx.wind.start() : sfx.wind.stop();
                     break;
                 case 'drips':
-                    if (action === 'start') {
+                    if (action === 'start' && !sfx.dripsLoop) {
                         sfx.dripsLoop = new Tone.Loop(time => {
                             sfx.drips.triggerAttackRelease('C4', '8n', time);
                         }, "2.5s").start(0);
                         Tone.Transport.start();
-                    } else {
-                        sfx.dripsLoop?.stop().dispose();
-                        Tone.Transport.stop();
+                    } else if (action === 'stop' && sfx.dripsLoop) {
+                        sfx.dripsLoop.stop().dispose();
+                        delete sfx.dripsLoop;
                     }
                     break;
                 case 'hum':
@@ -251,25 +309,54 @@
                     panelNoise.triggerAttackRelease("1.5");
                     break;
                 case 'all':
-                    Object.values(sfx).forEach(node => node.stop?.());
-                    sfx.dripsLoop?.stop().dispose();
-                    Tone.Transport.stop();
+                    disposeSFX(); // Use the new dispose function
                     break;
             }
         }
         
         function handleMusic(action, mood) {
+            if (!Tone.context || Tone.context.state !== 'running') {
+                 console.warn("Tone.js AudioContext not running. Music not played.");
+                 return;
+            }
             if (action === 'start') {
                 sfx.music.triggerAttackRelease(['C2', 'G2', 'Eb3'], '8n');
             } else if (action === 'swell') {
                 sfx.music.triggerAttackRelease(['F#2', 'C#3', 'A3'], '4n');
             } else if (action === 'stop') {
                 // Music fades out naturally via release
+                if (sfx.music) sfx.music.releaseAll();
             }
         }
 
         // --- Audio Generation (Gemini API) ---
-        async function generateAudio(text, speaker) {
+        async function getAudioDuration(audioUrl) {
+            return new Promise(resolve => {
+                const audio = new Audio(audioUrl);
+                audio.onloadedmetadata = () => {
+                    resolve(audio.duration);
+                };
+                audio.onerror = () => {
+                    console.error("Failed to load audio metadata for duration calculation:", audioUrl);
+                    resolve(0); // Return 0 if duration cannot be determined
+                };
+            });
+        }
+
+
+        async function generateAudio(text, speaker, index) {
+            // Local storage key for caching
+            const cacheKey = `audiocache_${speaker}_${btoa(text)}`; // base64 encode text for safe key
+
+            // Try to load from cache first
+            const cachedData = localStorage.getItem(cacheKey);
+            if (cachedData) {
+                console.log(`Loading audio for line ${index} from cache.`);
+                const parsedData = JSON.parse(cachedData);
+                return { url: parsedData.url, duration: parsedData.duration };
+            }
+
+
             const apiKey = "AIzaSyCX19N3c_Kgxh42bMdz9xEZKu9rgQebQ04"; // Using your provided API key
             const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${apiKey}`;
             
@@ -290,8 +377,8 @@
                 model: "gemini-2.5-flash-preview-tts"
             };
             
-            console.log("API Request URL:", apiUrl);
-            console.log("API Request Payload:", JSON.stringify(payload, null, 2));
+            console.log(`API Request for line ${index} - URL:`, apiUrl);
+            console.log(`API Request for line ${index} - Payload:`, JSON.stringify(payload, null, 2));
 
             let response;
             let delay = 1000;
@@ -315,18 +402,18 @@
                             errorBody = jsonAttempt;
                         } catch (parseError) {}
 
-                        console.error(`Attempt ${i + 1}: API Error: ${response.status} ${response.statusText}`, errorBody);
+                        console.error(`Attempt ${i + 1} for line ${index}: API Error: ${response.status} ${response.statusText}`, errorBody);
 
                         if (response.status === 429) {
-                            console.warn(`Attempt ${i + 1}: Rate limit hit. Retrying in ${delay / 1000}s...`);
+                            console.warn(`Attempt ${i + 1} for line ${index}: Rate limit hit. Retrying in ${delay / 1000}s...`);
                         } else {
-                            throw new Error(`API request failed with status ${response.status}: ${typeof errorBody === 'object' ? JSON.stringify(errorBody) : errorBody}`);
+                            throw new Error(`API request failed with status ${response.status} for line ${index}: ${typeof errorBody === 'object' ? JSON.stringify(errorBody) : errorBody}`);
                         }
                     }
                 } catch (fetchError) {
-                    console.error(`Attempt ${i + 1}: Fetch error:`, fetchError);
+                    console.error(`Attempt ${i + 1} for line ${index}: Fetch error:`, fetchError);
                     if (i === maxRetries - 1) {
-                        throw new Error(`Failed to fetch from API after ${maxRetries} retries: ${fetchError.message}`);
+                        throw new Error(`Failed to fetch from API after ${maxRetries} retries for line ${index}: ${fetchError.message}`);
                     }
                 }
                 await new Promise(resolve => setTimeout(resolve, delay));
@@ -334,7 +421,7 @@
             }
 
             if (!response || !response.ok) {
-                throw new Error(`Failed to get a successful API response after multiple retries.`);
+                throw new Error(`Failed to get a successful API response after multiple retries for line ${index}.`);
             }
 
             const resultText = await response.text();
@@ -342,7 +429,7 @@
             try {
                 result = JSON.parse(resultText);
             } catch (jsonParseError) {
-                console.error("Failed to parse API response as JSON:", resultText, jsonParseError);
+                console.error(`Failed to parse API response as JSON for line ${index}:`, resultText, jsonParseError);
                 throw new Error("Invalid JSON response from API.");
             }
             
@@ -357,50 +444,100 @@
                 const pcmBuffer = base64ToArrayBuffer(audioData);
                 const pcm16 = new Int16Array(pcmBuffer);
                 const wavBlob = pcmToWav(pcm16, sampleRate);
-                return URL.createObjectURL(wavBlob);
+                const audioUrl = URL.createObjectURL(wavBlob);
+
+                const duration = await getAudioDuration(audioUrl); // Get actual audio duration
+
+                // Cache the generated audio URL and its duration
+                localStorage.setItem(cacheKey, JSON.stringify({ url: audioUrl, duration: duration }));
+
+                return { url: audioUrl, duration: duration };
             } else {
-                console.error("Unexpected API response structure or mimeType:", result);
+                console.error("Unexpected API response structure or mimeType for line:", index, result);
                 throw new Error("Failed to extract expected 'audio/L16' data from API response. Response details: " + JSON.stringify(result));
             }
         }
         
         // --- Playback Logic ---
-        function playNextLine() {
-            if (currentLineIndex >= script.length || !isPlaying) {
+        function pausePlayback() {
+            if (currentAudio) {
+                currentAudio.pause();
+            }
+            if (currentTonePlayer && currentTonePlayer.state === 'started') {
+                 currentTonePlayer.stop(); // Stop Tone.Player for SFX
+            }
+            // Stop any active Tone.js loops/sounds that are continuous
+            if (sfx.dripsLoop && sfx.dripsLoop.state === 'started') sfx.dripsLoop.stop();
+            if (sfx.wind && sfx.wind.state === 'started') sfx.wind.stop();
+            if (sfx.hum && sfx.hum.state === 'started') sfx.hum.stop();
+            if (sfx.music && sfx.music.state === 'started') sfx.music.releaseAll(); // Fade out music
+        }
+
+
+        async function playNextLine() {
+            if (currentLineIndex >= audioQueue.length || !isPlaying) {
                 isPlaying = false;
                 updatePlayPauseButton();
-                handleSfx('stop', 'all');
-                handleMusic('stop');
+                disposeSFX(); // Clean up all Tone.js resources
+                currentAudio = null;
+                currentTonePlayer = null;
+                // Optionally reset progress and index when done
+                elapsedDramaDuration = totalDramaDuration;
+                updateProgressBar();
                 return;
             }
 
-            const currentItem = script[currentLineIndex];
+            const currentItem = audioQueue[currentLineIndex];
+            if (!currentItem) { // Handle non-playable items (e.g., music/sfx placeholders if not processed by Tone.js)
+                 currentLineIndex++;
+                 playNextLine();
+                 return;
+            }
+
             highlightCurrentLine();
             updateProgressBar();
 
-            if (currentItem.type === 'sfx') {
-                handleSfx(currentItem.action, currentItem.sound);
-                currentLineIndex++;
-                playNextLine();
-            } else if (currentItem.type === 'music') {
-                handleMusic(currentItem.action, currentItem.mood);
-                currentLineIndex++;
-                playNextLine();
-            } else {
-                const audioUrl = audioQueue[currentLineIndex];
-                if (audioUrl) {
-                    const audio = new Audio(audioUrl);
-                    audio.play();
-                    audio.onended = () => {
-                        currentLineIndex++;
-                        playNextLine();
-                    };
-                } else {
-                    console.error("Audio not ready for line:", currentLineIndex);
-                    showError("Missing audio for a script line. Generation might have failed.");
-                    isPlaying = false;
-                    updatePlayPauseButton();
+            if (currentItem.type === 'speech') {
+                currentAudio = new Audio(currentItem.url);
+                currentAudio.playbackRate = parseFloat(speedControl.value);
+                currentAudio.volume = parseFloat(volumeControl.value);
+                
+                currentAudio.play();
+
+                let lastTimeUpdate = 0;
+                currentAudio.ontimeupdate = () => {
+                    const currentTime = currentAudio.currentTime;
+                    // Only update elapsed duration for the current line
+                    // Add difference from last update to elapsedDramaDuration
+                    elapsedDramaDuration += (currentTime - lastTimeUpdate);
+                    lastTimeUpdate = currentTime;
+                    updateProgressBar();
+                };
+
+                currentAudio.onended = () => {
+                    URL.revokeObjectURL(currentItem.url); // Clean up object URL after playing
+                    currentLineIndex++;
+                    elapsedDramaDuration += (currentItem.duration - lastTimeUpdate); // Add remaining duration if any
+                    lastTimeUpdate = 0;
+                    playNextLine();
+                };
+
+            } else if (currentItem.type === 'sfx' || currentItem.type === 'music') {
+                // For SFX/Music handled by Tone.js, play them and then immediately advance
+                // Note: Complex SFX/Music with exact durations would need more sophisticated scheduling
+                if (currentItem.type === 'sfx') {
+                    handleSfx(currentItem.action, currentItem.sound);
+                } else if (currentItem.type === 'music') {
+                    handleMusic(currentItem.action, currentItem.mood);
                 }
+                
+                // For SFX/Music, advance immediately after handling the event
+                // If it has a specific duration, we add that to elapsed and then move
+                elapsedDramaDuration += currentItem.duration || 0; // Add duration, default to 0 if not set
+                updateProgressBar();
+                currentLineIndex++;
+                await new Promise(resolve => setTimeout(resolve, (currentItem.duration || 0) * 1000 / parseFloat(speedControl.value))); // Wait for sfx/music duration if any
+                playNextLine();
             }
         }
 
@@ -410,36 +547,48 @@
             loadingIndicator.classList.remove('hidden');
             playerUI.classList.add('hidden');
             errorMessage.classList.add('hidden');
+            currentLineIndex = 0; // Reset index for full regeneration
+            audioQueue = []; // Clear previous queue
+            totalDramaDuration = 0;
+            elapsedDramaDuration = 0;
+            updateProgressBar();
+
+            const speechLinesToGenerate = script.filter(item => item.speaker).length;
+            let generatedSpeechLines = 0;
 
             try {
-                // Process audio generation sequentially with a delay
-                audioQueue = []; // Clear existing queue
                 for (let i = 0; i < script.length; i++) {
                     const item = script[i];
                     if (item.speaker && item.line) {
+                        loadingText.textContent = `Generating audio (${++generatedSpeechLines}/${speechLinesToGenerate})...`;
                         const textToGenerate = item.style ? `Say in a ${item.style} tone: ${item.line}` : item.line;
-                        const audioUrl = await generateAudio(textToGenerate, item.speaker);
-                        audioQueue[i] = audioUrl; // Store generated audio URL at its original script index
-                        // Add a delay between each TTS API call to respect rate limits
-                        if (i < script.length - 1) { // Don't delay after the last item
-                            await new Promise(resolve => setTimeout(resolve, 6000)); // 6-second delay
-                        }
+                        const audioInfo = await generateAudio(textToGenerate, item.speaker, i); // returns {url, duration}
+                        audioQueue[i] = { type: 'speech', ...audioInfo, speaker: item.speaker };
+                        totalDramaDuration += audioInfo.duration;
+                    } else if (item.type === 'sfx' || item.type === 'music') {
+                        audioQueue[i] = { type: item.type, sound: item.sound, mood: item.mood, action: item.action, duration: item.duration || 0 };
+                        totalDramaDuration += item.duration || 0;
                     } else {
-                        audioQueue[i] = null; // Placeholder for non-audio lines
+                        audioQueue[i] = null; // Mark as non-playable/non-generating
                     }
+                    // Small delay to allow UI to update and avoid hammering if generating many fast lines
+                    await new Promise(resolve => setTimeout(resolve, 50));
                 }
                 
                 isGenerating = false;
                 loadingIndicator.classList.add('hidden');
                 playerUI.classList.remove('hidden');
                 
-                isPlaying = true;
+                isPlaying = true; // Auto-start after generation
                 updatePlayPauseButton();
                 playNextLine();
 
             } catch (error) {
                 console.error("Error during audio generation in pregenerateAllAudio:", error);
-                showError(`Could not generate audio: ${error.message}. Please try again later.`);
+                showError(`Could not generate audio: ${error.message}. Please check console for details.`);
+                isGenerating = false;
+                loadingIndicator.classList.add('hidden');
+                playerUI.classList.remove('hidden');
             }
         }
         
@@ -466,12 +615,16 @@
         }
         
         function updateProgressBar() {
-            const playableItems = script.filter(item => item.speaker || item.type === 'sfx' || item.type === 'music');
-            const progress = (currentLineIndex / playableItems.length) * 100;
-            progressBar.style.width = `${progress}%`;
+            if (totalDramaDuration > 0) {
+                const progress = (elapsedDramaDuration / totalDramaDuration) * 100;
+                progressBar.style.width = `${Math.min(100, Math.max(0, progress))}%`;
+            } else {
+                progressBar.style.width = '0%';
+            }
         }
 
         function populateScriptDisplay() {
+            scriptDisplay.innerHTML = ''; // Clear previous content
             script.forEach((item, index) => {
                 if (item.speaker) {
                     const lineEl = document.createElement('div');
@@ -500,16 +653,18 @@
         
         // --- Event Listeners ---
         playPauseBtn.addEventListener('click', async () => {
+            // Initialize Tone.js and SFX on first user interaction
             if (!audioContext) {
                 audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                await Tone.start();
-                initializeSFX();
+                await initializeSFX();
             }
 
             if (isGenerating) return;
 
-            if (audioQueue.length === 0 || currentLineIndex >= script.length) { // Regenerate if queue is empty or finished
+            if (!isPlaying && (audioQueue.length === 0 || currentLineIndex >= audioQueue.length)) {
+                // If not playing and either no audio generated or reached end, start generation
                 currentLineIndex = 0; // Reset for new playback
+                elapsedDramaDuration = 0;
                 pregenerateAllAudio();
             } else {
                 isPlaying = !isPlaying;
@@ -517,18 +672,96 @@
                 if (isPlaying) {
                     playNextLine();
                 } else {
+                    pausePlayback();
                     console.log("Playback paused.");
-                    if (sfx.dripsLoop) sfx.dripsLoop.stop();
-                    if (sfx.wind.state === 'started') sfx.wind.stop();
-                    if (sfx.hum.state === 'started') sfx.hum.stop();
                 }
             }
         });
+
+        volumeControl.addEventListener('input', (e) => {
+            const volume = parseFloat(e.target.value);
+            // Apply to Tone.js master output
+            if (Tone.Master) {
+                Tone.Master.volume.value = Tone.gainToDb(volume);
+            }
+            // Apply to currently playing HTMLAudioElement if any
+            if (currentAudio) {
+                currentAudio.volume = volume;
+            }
+        });
+
+        speedControl.addEventListener('change', (e) => {
+            const speed = parseFloat(e.target.value);
+            if (currentAudio) {
+                currentAudio.playbackRate = speed;
+            }
+            // Tone.js playback rate for Players would need to be handled if used
+        });
+
+        progressContainer.addEventListener('click', (e) => {
+            if (isGenerating || audioQueue.length === 0) return;
+
+            const rect = progressContainer.getBoundingClientRect();
+            const clickX = e.clientX - rect.left;
+            const clickProgress = clickX / rect.width; // 0 to 1
+
+            let seekTime = clickProgress * totalDramaDuration;
+            
+            // Find the closest line to seekTime
+            let accumulatedDuration = 0;
+            let targetLineIndex = 0;
+            for (let i = 0; i < audioQueue.length; i++) {
+                const item = audioQueue[i];
+                if (item && item.duration) {
+                    accumulatedDuration += item.duration;
+                }
+                if (accumulatedDuration >= seekTime) {
+                    targetLineIndex = i;
+                    break;
+                }
+                targetLineIndex = i; // Default to last line if seeking beyond calculated duration
+            }
+
+            // Stop current playback
+            pausePlayback();
+            isPlaying = true;
+            updatePlayPauseButton();
+
+            // Reset current line index and recalculate elapsed duration up to the target line
+            currentLineIndex = targetLineIndex;
+            elapsedDramaDuration = 0;
+            for (let i = 0; i < currentLineIndex; i++) {
+                const item = audioQueue[i];
+                if (item && item.duration) {
+                    elapsedDramaDuration += item.duration;
+                }
+            }
+            // If seeking mid-speech line, calculate the offset
+            if (audioQueue[currentLineIndex] && audioQueue[currentLineIndex].type === 'speech' && accumulatedDuration > seekTime) {
+                const previousItemsDuration = accumulatedDuration - audioQueue[currentLineIndex].duration;
+                const offsetInCurrentLine = seekTime - previousItemsDuration;
+                if (offsetInCurrentLine > 0) {
+                    // This is more complex for HTMLAudioElement as you can't just set current time then play.
+                    // For this basic seek, we'll just start from the beginning of the target line.
+                    // A more advanced solution would involve a single AudioBufferSourceNode and fine-grained control.
+                    // For now, seeking jumps to the start of the closest line.
+                    console.warn("Seeking within a speech line is not precisely supported; starting from the beginning of the closest line.");
+                    elapsedDramaDuration -= (audioQueue[currentLineIndex].duration - offsetInCurrentLine);
+                }
+            }
+            
+            playNextLine();
+        });
+
 
         // --- Initialization ---
         window.onload = () => {
             populateScriptDisplay();
             updateProgressBar();
+            // Set initial Tone.js master volume
+            if (Tone.Master) {
+                Tone.Master.volume.value = Tone.gainToDb(parseFloat(volumeControl.value));
+            }
         };
 
     </script>
