@@ -128,7 +128,8 @@
         // --- Script Definition ---
         const script = [
             // Pre-recorded Introductory Music. It now uses a Tone.Player for better control.
-            { type: 'intro_music', url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3', duration: 10, fadeOutTime: 3, description: 'Introductory Music' },
+            // Replaced soundhelix URL with a CORS-friendly public domain sound.
+            { type: 'intro_music', url: 'https://actions.google.com/sounds/v1/alarms/alarm_clock.ogg', duration: 3, fadeOutTime: 1, description: 'Alarm Clock Intro Music' }, 
             { type: 'sfx', action: 'start', sound: 'wind', duration: 4, volume: -30 }, // Start wind early, subtle
             { speaker: 'NARRATOR', line: "The city is a skeleton, picked clean by time." },
             { type: 'sfx', action: 'start', sound: 'drips', duration: 5, volume: -25 }, // Start drips, subtle
@@ -233,7 +234,7 @@
         async function initializeSFX() {
             try {
                 if (Tone.context.state !== 'running') {
-                    await Tone.start();
+                    await Tone.start(); // Ensure AudioContext is running
                 }
                 sfx.wind = new Tone.Noise('brown').set({ volume: -30, fadeOut: 2 }).toDestination();
                 sfx.drips = new Tone.MembraneSynth({
@@ -361,7 +362,7 @@
                     audioContext = new (window.AudioContext || window.webkitAudioContext)();
                 }
 
-                fetch(audioUrl)
+                fetch(audioUrl, { mode: 'cors' }) // Explicitly request CORS mode
                     .then(response => {
                         if (!response.ok) {
                             throw new Error(`HTTP error! status: ${response.status}`);
