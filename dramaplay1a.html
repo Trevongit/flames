@@ -116,8 +116,8 @@
 
         let audioContext;
         let isPlaying = false;
-        let currentAudio = null; // Reference to the currently playing HTMLAudioElement
-        let currentTonePlayer = null; // Reference to the currently playing Tone.Player
+        let currentAudio = null; // Reference to the currently playing HTMLAudioElement (for TTS)
+        let currentIntroPlayer = null; // Reference for the intro music Tone.Player
         let currentLineIndex = 0;
         let audioQueue = []; // Stores structured objects: { type: 'speech', url, speaker, duration } or { type: 'sfx', sound, duration }
         let sfx = {};
@@ -127,40 +127,41 @@
 
         // --- Script Definition ---
         const script = [
-            // Pre-recorded Introduction Music/Narration
-            { type: 'static_audio', url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3', duration: 10, description: 'Introductory Music' },
-            { type: 'music', action: 'start', mood: 'tense', duration: 5 }, // Estimated duration for non-TTS items
+            // Pre-recorded Introductory Music. It now uses a Tone.Player for better control.
+            { type: 'intro_music', url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3', duration: 10, fadeOutTime: 3, description: 'Introductory Music' },
+            { type: 'sfx', action: 'start', sound: 'wind', duration: 4, volume: -30 }, // Start wind early, subtle
             { speaker: 'NARRATOR', line: "The city is a skeleton, picked clean by time." },
-            { type: 'sfx', action: 'start', sound: 'wind', duration: 3 },
+            { type: 'sfx', action: 'start', sound: 'drips', duration: 5, volume: -25 }, // Start drips, subtle
             { speaker: 'NARRATOR', line: "A hollow wind howls through the decaying remains of once-thriving buildings, and the flickering neon signs that still cling to life cast a broken reflection in the puddles below." },
-            { type: 'sfx', action: 'start', sound: 'drips', duration: 4 },
             { speaker: 'NARRATOR', line: "Deep within this urban graveyard lies the cavernous, shadowed terminal of an abandoned train station." },
             { speaker: 'NARRATOR', line: "Here, where ivy strangles cracked pillars and dust dances in the stale air, a single spark of light appears." },
-            { type: 'sfx', action: 'play', sound: 'matchStrike', duration: 0.5 },
+            { type: 'sfx', action: 'play', sound: 'matchStrike', duration: 0.8, volume: -10 },
             { speaker: 'AUREN', line: "Just a little longer.", style: 'muttering, anxious' },
-            { type: 'sfx', action: 'start', sound: 'footsteps', duration: 2 },
+            { type: 'sfx', action: 'play', sound: 'footsteps', duration: 1.5, volume: -15 }, // Short, distinct footsteps
             { speaker: 'NARRATOR', line: "A sound. Auren whirls, his breath catching in his throat." },
-            { type: 'sfx', action: 'play', sound: 'lampOut', duration: 1 },
-            { type: 'sfx', action: 'stop', sound: 'footsteps', duration: 0 },
+            { type: 'sfx', action: 'play', sound: 'lampOut', duration: 0.5, volume: -10 },
+            { type: 'sfx', action: 'stop', sound: 'footsteps', duration: 0 }, // Ensure footsteps stop
             { speaker: 'ZIVAH', line: "If you’re trying to disappear, you’re doing a terrible job.", style: 'clear, confident' },
-            { type: 'sfx', action: 'play', sound: 'pipeDrop', duration: 1 },
+            { type: 'sfx', action: 'play', sound: 'pipeDrop', duration: 1, volume: -12 },
             { speaker: 'AUREN', line: "You followed me.", style: 'relieved but annoyed' },
             { speaker: 'ZIVAH', line: "You left a trail of smoldering breadcrumbs." },
             { speaker: 'AUREN', line: "It’s not safe." },
             { speaker: 'ZIVAH', line: "Since when has that stopped you?", style: 'smirking' },
             { speaker: 'AUREN', line: "I felt... something. In the air. Like...", style: 'serious' },
-            { type: 'sfx', action: 'play', sound: 'thunder', duration: 3 },
+            { type: 'sfx', action: 'play', sound: 'thunder', duration: 2.5, volume: -8 }, // Distinct thunder
             { speaker: 'ZIVAH', line: "The Surge?", style: 'serious' },
             { speaker: 'AUREN', line: "It’s building again." },
-            { type: 'sfx', action: 'start', sound: 'hum', duration: 5 },
+            { type: 'sfx', action: 'start', sound: 'hum', duration: 6, volume: -20 }, // New ambient hum
             { speaker: 'ZIVAH', line: "That’s not wind.", style: 'alarmed' },
             { speaker: 'AUREN', line: "It’s waking up again. The Old Sparks... the map led here. The glyphs confirm it." },
-            { type: 'sfx', action: 'play', sound: 'panelOpen', duration: 2 },
+            { type: 'sfx', action: 'play', sound: 'panelOpen', duration: 2, volume: -10 },
             { speaker: 'NARRATOR', line: "A hidden panel slides away, revealing a staircase spiraling down into deeper darkness." },
             { speaker: 'NARRATOR', line: "As they descend, the hum grows louder—a metallic, unnatural pulse, like the beating of a mechanical heart." },
-            { type: 'music', action: 'swell', duration: 5 },
-            { type: 'sfx', action: 'stop', sound: 'all', duration: 0 },
-            { type: 'music', action: 'stop', duration: 0 }
+            { type: 'music', action: 'swell', mood: 'ominous', duration: 5, volume: -10 }, // Music swells
+            { type: 'sfx', action: 'stop', sound: 'drips', duration: 0 }, // Explicitly stop drips
+            { type: 'sfx', action: 'stop', sound: 'hum', duration: 0 },   // Explicitly stop hum
+            { type: 'sfx', action: 'stop', sound: 'wind', duration: 0 },  // Explicitly stop wind
+            { type: 'music', action: 'stop', duration: 0 } // Music fades out naturally
         ];
 
         // --- Voice & Sound Configuration ---
@@ -209,7 +210,7 @@
             writeString(view, 0, 'RIFF');
             view.setUint32(4, 36 + dataSize, true);
             writeString(view, 8, 'WAVE');
-            writeString(view, 12, 'fmt ');
+            view.setUint32(12, 'fmt ', true);
             view.setUint32(16, 16, true);
             view.setUint16(20, 1, true); // PCM
             view.setUint16(22, numChannels, true);
@@ -255,29 +256,43 @@
         }
 
         function disposeSFX() {
+            // Stop and dispose all Tone.js nodes
             Object.values(sfx).forEach(node => {
                 if (node.stop) node.stop();
                 if (node.dispose) node.dispose();
             });
+            // Dispose of specific Tone.Loop if it exists
             if (sfx.dripsLoop) {
                 sfx.dripsLoop.stop().dispose();
                 delete sfx.dripsLoop;
+            }
+            if (currentIntroPlayer) {
+                currentIntroPlayer.stop().dispose();
+                currentIntroPlayer = null;
             }
             Tone.Transport.stop();
             sfx = {}; // Reset sfx object
         }
 
-        function handleSfx(action, sound) {
+        function handleSfx(action, sound, volume) {
             if (!Tone.context || Tone.context.state !== 'running') {
                  console.warn("Tone.js AudioContext not running. SFX not played.");
                  return;
             }
+            // If a specific volume is provided, apply it. Otherwise, use default.
+            const sfxVolume = volume !== undefined ? volume : -30;
+
             switch (sound) {
                 case 'wind':
-                    action === 'start' ? sfx.wind.start() : sfx.wind.stop();
+                    if (action === 'start' && sfx.wind.state !== 'started') {
+                        sfx.wind.set({ volume: sfxVolume }).start();
+                    } else if (action === 'stop' && sfx.wind.state === 'started') {
+                        sfx.wind.stop();
+                    }
                     break;
                 case 'drips':
                     if (action === 'start' && !sfx.dripsLoop) {
+                        sfx.drips.set({ volume: sfxVolume });
                         sfx.dripsLoop = new Tone.Loop(time => {
                             sfx.drips.triggerAttackRelease('C4', '8n', time);
                         }, "2.5s").start(0);
@@ -288,27 +303,31 @@
                     }
                     break;
                 case 'hum':
-                    action === 'start' ? sfx.hum.start() : sfx.hum.stop();
+                    if (action === 'start' && sfx.hum.state !== 'started') {
+                        sfx.hum.set({ volume: sfxVolume }).start();
+                    } else if (action === 'stop' && sfx.hum.state === 'started') {
+                        sfx.hum.stop();
+                    }
                     break;
                 case 'matchStrike':
-                    const noiseSynth = new Tone.NoiseSynth({ noise: { type: 'white' }, envelope: { attack: 0.001, decay: 0.1, sustain: 0 } }).toDestination();
+                    const noiseSynth = new Tone.NoiseSynth({ noise: { type: 'white' }, envelope: { attack: 0.001, decay: 0.1, sustain: 0 }, volume: sfxVolume }).toDestination();
                     noiseSynth.triggerAttackRelease("0.1");
                     break;
                 case 'lampOut':
-                    const windSynth = new Tone.NoiseSynth({ noise: { type: 'pink' }, envelope: { attack: 0.01, decay: 0.2, sustain: 0.1, release: 0.2 } }).toDestination();
+                    const windSynth = new Tone.NoiseSynth({ noise: { type: 'pink' }, envelope: { attack: 0.01, decay: 0.2, sustain: 0.1, release: 0.2 }, volume: sfxVolume }).toDestination();
                     windSynth.triggerAttackRelease("0.3");
                     break;
                 case 'pipeDrop':
-                    const metalSynth = new Tone.MembraneSynth({ pitchDecay: 0.1, octaves: 2, envelope: { attack: 0.001, decay: 0.5, release: 1 } }).toDestination();
+                    const metalSynth = new Tone.MembraneSynth({ pitchDecay: 0.1, octaves: 2, envelope: { attack: 0.001, decay: 0.5, release: 1 }, volume: sfxVolume }).toDestination();
                     metalSynth.triggerAttackRelease("C2", "8n");
                     break;
                 case 'thunder':
-                    const thunderNoise = new Tone.Noise('brown').set({ volume: -10, fadeOut: 3 }).toDestination();
+                    const thunderNoise = new Tone.Noise('brown').set({ volume: sfxVolume, fadeOut: 3 }).toDestination();
                     thunderNoise.start().stop("+3");
                     break;
                 case 'panelOpen':
-                    const panelNoise = new Tone.NoiseSynth({ noise: { type: 'white' }, envelope: { attack: 0.1, decay: 1.5, sustain: 0.2, release: 0.5 } }).toDestination();
-                    panelNoise.triggerAttackRelease("1.5");
+                    const panelNoise = new Tone.NoiseSynth({ noise: { type: 'white' }, envelope: { attack: 0.1, decay: 1.5, sustain: 0.2, release: 0.5 }, volume: sfxVolume }).toDestination();
+                    panelNoise.triggerAttackAttackRelease("C2", "1.5");
                     break;
                 case 'all':
                     disposeSFX(); // Use the new dispose function
@@ -316,18 +335,20 @@
             }
         }
         
-        function handleMusic(action, mood) {
+        function handleMusic(action, mood, volume) {
             if (!Tone.context || Tone.context.state !== 'running') {
                  console.warn("Tone.js AudioContext not running. Music not played.");
                  return;
             }
+            const musicVolume = volume !== undefined ? volume : -15;
+            sfx.music.set({ volume: musicVolume }); // Set volume for music poly synth
+
             if (action === 'start') {
                 sfx.music.triggerAttackRelease(['C2', 'G2', 'Eb3'], '8n');
             } else if (action === 'swell') {
                 sfx.music.triggerAttackRelease(['F#2', 'C#3', 'A3'], '4n');
             } else if (action === 'stop') {
-                // Music fades out naturally via release
-                if (sfx.music) sfx.music.releaseAll();
+                if (sfx.music) sfx.music.releaseAll(); // Trigger natural fade out
             }
         }
 
@@ -472,8 +493,8 @@
             if (currentAudio) {
                 currentAudio.pause();
             }
-            if (currentTonePlayer && currentTonePlayer.state === 'started') {
-                 currentTonePlayer.stop(); // Stop Tone.Player for SFX
+            if (currentIntroPlayer && currentIntroPlayer.state === 'started') {
+                currentIntroPlayer.pause(); // Pause intro music
             }
             // Stop any active Tone.js loops/sounds that are continuous
             if (sfx.dripsLoop && sfx.dripsLoop.state === 'started') sfx.dripsLoop.stop();
@@ -489,7 +510,7 @@
                 updatePlayPauseButton();
                 disposeSFX(); // Clean up all Tone.js resources
                 currentAudio = null;
-                currentTonePlayer = null;
+                currentIntroPlayer = null;
                 // Optionally reset progress and index when done
                 elapsedDramaDuration = totalDramaDuration;
                 updateProgressBar();
@@ -497,7 +518,7 @@
             }
 
             const currentItem = audioQueue[currentLineIndex];
-            if (!currentItem) { // Handle non-playable items (e.g., music/sfx placeholders if not processed by Tone.js)
+            if (!currentItem) {
                  currentLineIndex++;
                  playNextLine();
                  return;
@@ -506,7 +527,13 @@
             highlightCurrentLine();
             updateProgressBar();
 
-            if (currentItem.type === 'speech' || currentItem.type === 'static_audio') { // Combined handling
+            if (currentItem.type === 'speech') {
+                // Stop intro music if still playing and this is the first speech line
+                if (currentIntroPlayer && currentIntroPlayer.state === 'started') {
+                    currentIntroPlayer.fadeOut(currentItem.duration * 0.5 || 1); // Fade out intro during first speech
+                    currentIntroPlayer.stop('+'+(currentItem.duration * 0.5 || 1));
+                }
+                
                 currentAudio = new Audio(currentItem.url);
                 currentAudio.playbackRate = parseFloat(speedControl.value);
                 currentAudio.volume = parseFloat(volumeControl.value);
@@ -522,31 +549,62 @@
                 };
 
                 currentAudio.onended = () => {
-                    // Only revoke object URL for dynamically generated audio (not static_audio if it's external)
-                    if (currentItem.type === 'speech') {
-                       URL.revokeObjectURL(currentItem.url); 
-                    }
+                    URL.revokeObjectURL(currentItem.url); // Clean up object URL after playing
                     currentLineIndex++;
                     elapsedDramaDuration += (currentItem.duration - lastTimeUpdate);
                     lastTimeUpdate = 0;
                     playNextLine();
                 };
 
-            } else if (currentItem.type === 'sfx' || currentItem.type === 'music') {
-                // For SFX/Music handled by Tone.js, play them and then immediately advance
-                // Note: Complex SFX/Music with exact durations would need more sophisticated scheduling
-                if (currentItem.type === 'sfx') {
-                    handleSfx(currentItem.action, currentItem.sound);
-                } else if (currentItem.type === 'music') {
-                    handleMusic(currentItem.action, currentItem.mood);
+            } else if (currentItem.type === 'intro_music') {
+                // Initialize and play intro music using Tone.Player
+                currentIntroPlayer = new Tone.Player(currentItem.url).toDestination();
+                currentIntroPlayer.volume.value = Tone.gainToDb(parseFloat(volumeControl.value));
+                currentIntroPlayer.start(0);
+
+                // Schedule fade out if defined
+                if (currentItem.fadeOutTime && currentItem.duration > currentItem.fadeOutTime) {
+                    currentIntroPlayer.volume.rampTo(Tone.gainToDb(0), currentItem.fadeOutTime, `+${currentItem.duration - currentItem.fadeOutTime}`);
                 }
                 
-                // For SFX/Music, advance immediately after handling the event
-                // If it has a specific duration, we add that to elapsed and then move
-                elapsedDramaDuration += currentItem.duration || 0; // Add duration, default to 0 if not set
+                let introStartTime = Tone.now();
+                const updateIntroProgress = () => {
+                    const currentTime = Tone.now() - introStartTime;
+                    if (currentTime < currentItem.duration) {
+                        elapsedDramaDuration = Math.min(totalDramaDuration, elapsedDramaDuration + (currentTime - (lastTimeUpdate || 0)));
+                        lastTimeUpdate = currentTime;
+                        updateProgressBar();
+                        requestAnimationFrame(updateIntroProgress);
+                    }
+                };
+                requestAnimationFrame(updateIntroProgress);
+
+
+                currentIntroPlayer.onStop = () => {
+                    console.log("Intro music stopped.");
+                    currentLineIndex++;
+                    elapsedDramaDuration += (currentItem.duration - (lastTimeUpdate || 0)); // Ensure full duration accounted for
+                    lastTimeUpdate = 0;
+                    playNextLine();
+                };
+
+            } else if (currentItem.type === 'sfx' || currentItem.type === 'music') {
+                // Stop intro music if still playing and a new sfx/music is introduced
+                if (currentIntroPlayer && currentIntroPlayer.state === 'started') {
+                    currentIntroPlayer.fadeOut(currentItem.duration * 0.5 || 1); // Fade out intro during sfx
+                    currentIntroPlayer.stop('+'+(currentItem.duration * 0.5 || 1));
+                }
+
+                if (currentItem.type === 'sfx') {
+                    handleSfx(currentItem.action, currentItem.sound, currentItem.volume);
+                } else if (currentItem.type === 'music') {
+                    handleMusic(currentItem.action, currentItem.mood, currentItem.volume);
+                }
+                
+                elapsedDramaDuration += currentItem.duration || 0;
                 updateProgressBar();
                 currentLineIndex++;
-                await new Promise(resolve => setTimeout(resolve, (currentItem.duration || 0) * 1000 / parseFloat(speedControl.value))); // Wait for sfx/music duration if any
+                await new Promise(resolve => setTimeout(resolve, (currentItem.duration || 0) * 1000 / parseFloat(speedControl.value)));
                 playNextLine();
             }
         }
@@ -570,25 +628,22 @@
                 for (let i = 0; i < script.length; i++) {
                     const item = script[i];
 
-                    if (item.type === 'static_audio') {
-                        loadingText.textContent = `Loading introductory audio...`;
-                        const audioUrl = item.url;
-                        const duration = await getAudioDuration(audioUrl);
-                        audioQueue[i] = { type: 'static_audio', url: audioUrl, duration: duration, description: item.description };
-                        totalDramaDuration += duration;
+                    if (item.type === 'intro_music') {
+                        loadingText.textContent = `Loading introductory music...`;
+                        audioQueue[i] = { type: 'intro_music', url: item.url, duration: item.duration, fadeOutTime: item.fadeOutTime, description: item.description };
+                        totalDramaDuration += item.duration;
                     } else if (item.speaker && item.line) {
                         loadingText.textContent = `Generating audio (${++generatedSpeechLines}/${speechLinesToGenerate})...`;
                         const textToGenerate = item.style ? `Say in a ${item.style} tone: ${item.line}` : item.line;
-                        const audioInfo = await generateAudio(textToGenerate, item.speaker, i); // returns {url, duration}
+                        const audioInfo = await generateAudio(textToGenerate, item.speaker, i);
                         audioQueue[i] = { type: 'speech', ...audioInfo, speaker: item.speaker };
                         totalDramaDuration += audioInfo.duration;
                     } else if (item.type === 'sfx' || item.type === 'music') {
-                        audioQueue[i] = { type: item.type, sound: item.sound, mood: item.mood, action: item.action, duration: item.duration || 0 };
+                        audioQueue[i] = { type: item.type, sound: item.sound, mood: item.mood, action: item.action, duration: item.duration || 0, volume: item.volume };
                         totalDramaDuration += item.duration || 0;
                     } else {
                         audioQueue[i] = null; // Mark as non-playable/non-generating
                     }
-                    // Small delay to allow UI to update and avoid hammering if generating many fast lines
                     await new Promise(resolve => setTimeout(resolve, 50));
                 }
                 
@@ -664,12 +719,12 @@
                     sfxEl.dataset.index = index;
                     sfxEl.textContent = `[${item.type.toUpperCase()}: ${item.action} ${item.sound || item.mood || ''}]`;
                     scriptDisplay.appendChild(sfxEl);
-                } else if (item.type === 'static_audio') { // New: static audio line
-                    const staticAudioEl = document.createElement('div');
-                    staticAudioEl.classList.add('script-line', 'text-gray-500', 'italic', 'my-2', 'text-center');
-                    staticAudioEl.dataset.index = index;
-                    staticAudioEl.textContent = `[INTRO: ${item.description}]`;
-                    scriptDisplay.appendChild(staticAudioEl);
+                } else if (item.type === 'intro_music') {
+                    const introEl = document.createElement('div');
+                    introEl.classList.add('script-line', 'text-gray-500', 'italic', 'my-2', 'text-center');
+                    introEl.dataset.index = index;
+                    introEl.textContent = `[INTRO MUSIC: ${item.description}]`;
+                    scriptDisplay.appendChild(introEl);
                 }
             });
         }
@@ -710,6 +765,9 @@
             // Apply to currently playing HTMLAudioElement if any
             if (currentAudio) {
                 currentAudio.volume = volume;
+            }
+            if (currentIntroPlayer) {
+                currentIntroPlayer.volume.value = Tone.gainToDb(volume);
             }
         });
 
@@ -760,7 +818,7 @@
                 }
             }
             // If seeking mid-speech line, calculate the offset
-            if (audioQueue[currentLineIndex] && (audioQueue[currentLineIndex].type === 'speech' || audioQueue[currentLineIndex].type === 'static_audio') && accumulatedDuration > seekTime) {
+            if (audioQueue[currentLineIndex] && (audioQueue[currentLineIndex].type === 'speech' || audioQueue[currentLineIndex].type === 'intro_music') && accumulatedDuration > seekTime) {
                 const previousItemsDuration = accumulatedDuration - audioQueue[currentLineIndex].duration;
                 const offsetInCurrentLine = seekTime - previousItemsDuration;
                 if (offsetInCurrentLine > 0) {
