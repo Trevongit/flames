@@ -210,7 +210,7 @@
             writeString(view, 0, 'RIFF');
             view.setUint32(4, 36 + dataSize, true);
             writeString(view, 8, 'WAVE');
-            view.setUint32(12, 'fmt ', true);
+            view.setUint32(12, 0x666d7420, true); // "fmt "
             view.setUint32(16, 16, true);
             view.setUint16(20, 1, true); // PCM
             view.setUint16(22, numChannels, true);
@@ -353,16 +353,27 @@
         }
 
         // --- Audio Generation (Gemini API) ---
-        async function getAudioDuration(audioUrl) {
-            return new Promise(resolve => {
-                const audio = new Audio(audioUrl);
-                audio.onloadedmetadata = () => {
-                    resolve(audio.duration);
-                };
-                audio.onerror = () => {
-                    console.error("Failed to load audio metadata for duration calculation:", audioUrl);
-                    resolve(0); // Return 0 if duration cannot be determined
-                };
+        // This function is now specifically for external URLs like the intro music.
+        async function getAudioDurationFromUrl(audioUrl) {
+            return new Promise((resolve, reject) => {
+                // Ensure audioContext is initialized before decoding
+                if (!audioContext) {
+                    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                }
+
+                fetch(audioUrl)
+                    .then(response => {
+                        if (!response.ok) {
+                            throw new Error(`HTTP error! status: ${response.status}`);
+                        }
+                        return response.arrayBuffer();
+                    })
+                    .then(arrayBuffer => audioContext.decodeAudioData(arrayBuffer))
+                    .then(audioBuffer => resolve(audioBuffer.duration))
+                    .catch(error => {
+                        console.error("Failed to decode audio data for duration calculation from URL:", audioUrl, error);
+                        resolve(0); // Resolve with 0 if decoding fails
+                    });
             });
         }
 
@@ -472,11 +483,12 @@
                 const sampleRate = match ? parseInt(match[1], 10) : 16000;
 
                 const pcmBuffer = base64ToArrayBuffer(audioData);
-                const pcm16 = new Int16Array(pcmBuffer);
+                const pcm16 = new Int16Array(pcmBuffer); 
                 const wavBlob = pcmToWav(pcm16, sampleRate);
                 const audioUrl = URL.createObjectURL(wavBlob);
 
-                const duration = await getAudioDuration(audioUrl); // Get actual audio duration
+                // Calculate duration directly from PCM data (samples / sampleRate) for generated TTS audio
+                const duration = pcm16.length / sampleRate; 
 
                 // Cache the generated audio URL and its duration
                 localStorage.setItem(cacheKey, JSON.stringify({ url: audioUrl, duration: duration }));
@@ -530,7 +542,7 @@
             if (currentItem.type === 'speech') {
                 // Stop intro music if still playing and this is the first speech line
                 if (currentIntroPlayer && currentIntroPlayer.state === 'started') {
-                    currentIntroPlayer.fadeOut(currentItem.duration * 0.5 || 1); // Fade out intro during first speech
+                    currentIntroPlayer.volume.rampTo(Tone.gainToDb(0), currentItem.duration * 0.5 || 1); // Fade out intro during first speech
                     currentIntroPlayer.stop('+'+(currentItem.duration * 0.5 || 1));
                 }
                 
@@ -591,7 +603,7 @@
             } else if (currentItem.type === 'sfx' || currentItem.type === 'music') {
                 // Stop intro music if still playing and a new sfx/music is introduced
                 if (currentIntroPlayer && currentIntroPlayer.state === 'started') {
-                    currentIntroPlayer.fadeOut(currentItem.duration * 0.5 || 1); // Fade out intro during sfx
+                    currentIntroPlayer.volume.rampTo(Tone.gainToDb(0), currentItem.duration * 0.5 || 1); // Fade out intro during sfx
                     currentIntroPlayer.stop('+'+(currentItem.duration * 0.5 || 1));
                 }
 
@@ -625,25 +637,36 @@
             let generatedSpeechLines = 0;
 
             try {
+                // Ensure audioContext is initialized before starting audio processing
+                if (!audioContext) {
+                    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    await initializeSFX();
+                }
+
                 for (let i = 0; i < script.length; i++) {
                     const item = script[i];
 
                     if (item.type === 'intro_music') {
                         loadingText.textContent = `Loading introductory music...`;
-                        audioQueue[i] = { type: 'intro_music', url: item.url, duration: item.duration, fadeOutTime: item.fadeOutTime, description: item.description };
-                        totalDramaDuration += item.duration;
+                        // For intro music, use the dedicated getAudioDurationFromUrl
+                        const duration = await getAudioDurationFromUrl(item.url);
+                        audioQueue[i] = { type: 'intro_music', url: item.url, duration: duration, fadeOutTime: item.fadeOutTime, description: item.description };
+                        totalDramaDuration += duration;
                     } else if (item.speaker && item.line) {
                         loadingText.textContent = `Generating audio (${++generatedSpeechLines}/${speechLinesToGenerate})...`;
                         const textToGenerate = item.style ? `Say in a ${item.style} tone: ${item.line}` : item.line;
                         const audioInfo = await generateAudio(textToGenerate, item.speaker, i);
                         audioQueue[i] = { type: 'speech', ...audioInfo, speaker: item.speaker };
                         totalDramaDuration += audioInfo.duration;
+                        // Add a delay after each successful TTS audio generation to prevent hitting daily quota
+                        await new Promise(resolve => setTimeout(resolve, 2000)); // 2-second delay
                     } else if (item.type === 'sfx' || item.type === 'music') {
                         audioQueue[i] = { type: item.type, sound: item.sound, mood: item.mood, action: item.action, duration: item.duration || 0, volume: item.volume };
                         totalDramaDuration += item.duration || 0;
                     } else {
                         audioQueue[i] = null; // Mark as non-playable/non-generating
                     }
+                    // Small delay after processing each item (even non-TTS) to allow UI to update
                     await new Promise(resolve => setTimeout(resolve, 50));
                 }
                 
