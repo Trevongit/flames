@@ -1,0 +1,4 @@
+{
+  "STOCK_BASE": "https://your.cdn.example/vibedrama",
+  "API_SYNTH": "https://your.api.example/synth"
+}
