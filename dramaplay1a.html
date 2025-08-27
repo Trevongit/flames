@@ -192,6 +192,16 @@
             }
             return bytes.buffer;
         }
+
+        function arrayBufferToBase64(buffer) {
+            let binary = '';
+            const bytes = new Uint8Array(buffer);
+            const len = bytes.byteLength;
+            for (let i = 0; i < len; i++) {
+                binary += String.fromCharCode(bytes[i]);
+            }
+            return window.btoa(binary);
+        }
         
         function pcmToWav(pcmData, sampleRate) {
             const numChannels = 1;
@@ -328,7 +338,7 @@
                     break;
                 case 'panelOpen':
                     const panelNoise = new Tone.NoiseSynth({ noise: { type: 'white' }, envelope: { attack: 0.1, decay: 1.5, sustain: 0.2, release: 0.5 }, volume: sfxVolume }).toDestination();
-                    panelNoise.triggerAttackAttackRelease("C2", "1.5");
+                    panelNoise.triggerAttackRelease("C2", "1.5");
                     break;
                 case 'all':
                     disposeSFX(); // Use the new dispose function
@@ -395,7 +405,10 @@
             if (cachedData) {
                 console.log(`Loading audio for line ${index} from cache.`);
                 const parsedData = JSON.parse(cachedData);
-                return { url: parsedData.url, duration: parsedData.duration };
+                const arrayBuffer = base64ToArrayBuffer(parsedData.data);
+                const audioBlob = new Blob([arrayBuffer], { type: parsedData.mimeType || 'audio/wav' });
+                const audioUrl = URL.createObjectURL(audioBlob);
+                return { url: audioUrl, duration: parsedData.duration };
             }
 
 
@@ -408,7 +421,7 @@
                 response = await fetch(apiUrl, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ text, speaker })
+                    body: JSON.stringify({ text, speaker: voiceConfig[speaker]?.voiceName || speaker })
                 });
             } catch (fetchError) {
                 console.error(`Failed to reach VibeVoice server for line ${index}:`, fetchError);
@@ -438,9 +451,10 @@
 
             const audioBlob = new Blob([arrayBuffer], { type: mimeType });
             const audioUrl = URL.createObjectURL(audioBlob);
+            const base64Audio = arrayBufferToBase64(arrayBuffer);
 
-            // Cache the generated audio URL and its duration
-            localStorage.setItem(cacheKey, JSON.stringify({ url: audioUrl, duration }));
+            // Cache the generated audio data and its duration
+            localStorage.setItem(cacheKey, JSON.stringify({ data: base64Audio, duration, mimeType }));
 
             return { url: audioUrl, duration };
         }
@@ -523,7 +537,8 @@
                 if (currentItem.fadeOutTime && currentItem.duration > currentItem.fadeOutTime) {
                     currentIntroPlayer.volume.rampTo(Tone.gainToDb(0), currentItem.fadeOutTime, `+${currentItem.duration - currentItem.fadeOutTime}`);
                 }
-                
+
+                let lastTimeUpdate = 0;
                 let introStartTime = Tone.now();
                 const updateIntroProgress = () => {
                     const currentTime = Tone.now() - introStartTime;
@@ -537,7 +552,7 @@
                 requestAnimationFrame(updateIntroProgress);
 
 
-                currentIntroPlayer.onStop = () => {
+                currentIntroPlayer.onstop = () => {
                     console.log("Intro music stopped.");
                     currentLineIndex++;
                     elapsedDramaDuration += (currentItem.duration - (lastTimeUpdate || 0)); // Ensure full duration accounted for
