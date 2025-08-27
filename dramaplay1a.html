@@ -399,106 +399,50 @@
             }
 
 
-            const apiKey = "AIzaSyCX19N3c_Kgxh42bMdz9xEZKu9rgQebQ04"; // Using your provided API key
-            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${apiKey}`;
-            
-            const selectedVoiceConfig = voiceConfig[speaker] || { voiceName: 'Kore' };
-
-            const payload = {
-                contents: [{ parts: [{ text: text }] }],
-                generationConfig: {
-                    responseModalities: ["AUDIO"],
-                    speechConfig: {
-                        voiceConfig: {
-                            prebuiltVoiceConfig: {
-                                voiceName: selectedVoiceConfig.voiceName
-                            }
-                        }
-                    }
-                },
-                model: "gemini-2.5-flash-preview-tts"
-            };
-            
-            console.log(`API Request for line ${index} - URL:`, apiUrl);
-            console.log(`API Request for line ${index} - Payload:`, JSON.stringify(payload, null, 2));
+            // Request audio from local VibeVoice inference server
+            const apiUrl = "http://localhost:3000/tts";
+            console.log(`Requesting VibeVoice audio for line ${index} - URL:`, apiUrl);
 
             let response;
-            let delay = 1000;
-            const maxRetries = 5;
-
-            for (let i = 0; i < maxRetries; i++) {
-                try {
-                    response = await fetch(apiUrl, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(payload)
-                    });
-
-                    if (response.ok) {
-                        break;
-                    } else {
-                        let errorBody = '';
-                        try {
-                            errorBody = await response.text();
-                            const jsonAttempt = JSON.parse(errorBody);
-                            errorBody = jsonAttempt;
-                        } catch (parseError) {}
-
-                        console.error(`Attempt ${i + 1} for line ${index}: API Error: ${response.status} ${response.statusText}`, errorBody);
-
-                        if (response.status === 429) {
-                            console.warn(`Attempt ${i + 1} for line ${index}: Rate limit hit. Retrying in ${delay / 1000}s...`);
-                        } else {
-                            throw new Error(`API request failed with status ${response.status} for line ${index}: ${typeof errorBody === 'object' ? JSON.stringify(errorBody) : errorBody}`);
-                        }
-                    }
-                } catch (fetchError) {
-                    console.error(`Attempt ${i + 1} for line ${index}: Fetch error:`, fetchError);
-                    if (i === maxRetries - 1) {
-                        throw new Error(`Failed to fetch from API after ${maxRetries} retries for line ${index}: ${fetchError.message}`);
-                    }
-                }
-                await new Promise(resolve => setTimeout(resolve, delay));
-                delay *= 2;
-            }
-
-            if (!response || !response.ok) {
-                throw new Error(`Failed to get a successful API response after multiple retries for line ${index}.`);
-            }
-
-            const resultText = await response.text();
-            let result;
             try {
-                result = JSON.parse(resultText);
-            } catch (jsonParseError) {
-                console.error(`Failed to parse API response as JSON for line ${index}:`, resultText, jsonParseError);
-                throw new Error("Invalid JSON response from API.");
+                response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text, speaker })
+                });
+            } catch (fetchError) {
+                console.error(`Failed to reach VibeVoice server for line ${index}:`, fetchError);
+                throw new Error(`Network error contacting VibeVoice server: ${fetchError.message}`);
             }
-            
-            const part = result?.candidates?.[0]?.content?.parts?.[0];
-            const audioData = part?.inlineData?.data;
-            const mimeType = part?.inlineData?.mimeType;
 
-            if (audioData && mimeType && mimeType.startsWith("audio/L16")) {
-                const match = mimeType.match(/rate=(\d+)/);
-                const sampleRate = match ? parseInt(match[1], 10) : 16000;
-
-                const pcmBuffer = base64ToArrayBuffer(audioData);
-                const pcm16 = new Int16Array(pcmBuffer); 
-                const wavBlob = pcmToWav(pcm16, sampleRate);
-                const audioUrl = URL.createObjectURL(wavBlob);
-
-                // Calculate duration directly from PCM data (samples / sampleRate) for generated TTS audio
-                const duration = pcm16.length / sampleRate; 
-
-                // Cache the generated audio URL and its duration
-                localStorage.setItem(cacheKey, JSON.stringify({ url: audioUrl, duration: duration }));
-
-                return { url: audioUrl, duration: duration };
-            } else {
-                console.error("Unexpected API response structure or mimeType for line:", index, result);
-                throw new Error("Failed to extract expected 'audio/L16' data from API response. Response details: " + JSON.stringify(result));
+            if (!response.ok) {
+                const errorBody = await response.text().catch(() => '');
+                throw new Error(`VibeVoice server error ${response.status} for line ${index}: ${errorBody}`);
             }
+
+            const arrayBuffer = await response.arrayBuffer();
+            const mimeType = response.headers.get('Content-Type') || 'audio/wav';
+
+            // Ensure audioContext is initialized before decoding
+            if (!audioContext) {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            }
+
+            let duration = 0;
+            try {
+                const audioBuffer = await audioContext.decodeAudioData(arrayBuffer.slice(0));
+                duration = audioBuffer.duration;
+            } catch (decodeError) {
+                console.warn(`Unable to decode audio data for duration on line ${index}:`, decodeError);
+            }
+
+            const audioBlob = new Blob([arrayBuffer], { type: mimeType });
+            const audioUrl = URL.createObjectURL(audioBlob);
+
+            // Cache the generated audio URL and its duration
+            localStorage.setItem(cacheKey, JSON.stringify({ url: audioUrl, duration }));
+
+            return { url: audioUrl, duration };
         }
         
         // --- Playback Logic ---
