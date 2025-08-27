@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Year 7 Math Guide</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header>
+    <h1>Welcome to Math Mastery</h1>
+    <button onclick="playNarration('intro')">🔊 Listen</button>
+  </header>
+
+  <section class="question-card">
+    <p id="question-text">What is 25% of 80?</p>
+    <input type="number" id="answer-input" />
+    <button onclick="checkAnswer()">Submit</button>
+    <button onclick="playNarration('hint')">🔊 Hint</button>
+    <p id="feedback"></p>
+  </section>
+
+  <audio id="audio-player"></audio>
+
+  <script src="script.js"></script>
+</body>
+</html>
