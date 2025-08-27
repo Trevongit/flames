@@ -31,4 +31,11 @@ The server listens on `http://localhost:3000/tts` by default and returns raw PCM
 ## Using in This Project
 `dramaplay1a.html` calls the local VibeVoice endpoint.  The returned audio is converted to a `Blob` for playback and cached in `localStorage`.
 
-Start the server as shown above and open `dramaplay1a.html` in a browser to hear generated speech.
+1. Ensure the VibeVoice inference server above is running and reachable at `http://localhost:3000/tts`.
+2. From this repository's directory, start a simple HTTP server such as:
+
+   ```bash
+   npx http-server .
+   ```
+
+3. With the server running, open `dramaplay1a.html` from that server (e.g. `http://localhost:8080/dramaplay1a.html`) to hear the generated speech.
